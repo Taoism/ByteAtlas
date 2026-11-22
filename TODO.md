@@ -79,6 +79,14 @@ clean-room, open source. Version 0.1.0 (2026-11-21).
 
 ## Open
 
+- [ ] Duplicate search as its own tool (today a template inside File search): duplicate **files** and duplicate
+      **folders** (same contents: names, sizes, hashes; folders that are subsets of each other), grouped results
+      with total space that could be freed, keep-one selection rules, delete / hard-link / move the extra copies.
+- [ ] Chart colours per file type: every extension / file group gets its own colour in the treemap, pie and bar
+      charts, with a legend, editable colours (Options), the same colour for a type everywhere in the app.
+- [ ] Details view: file and folder icons, with folder icons drawn for both dark and light mode (no light outlines
+      on dark), chosen to match the current theme.
+
 - [ ] More remote sources: SharePoint / OneDrive through Microsoft Graph (sign-in), Outlook mailboxes, phones via MTP.
 - [ ] Report designer + print preview inside the app; SMTP mail; portable mode; cleanup recommendations;
       treemap colour by age / growth; SMART disk health.
