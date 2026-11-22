@@ -10,7 +10,7 @@ foreach ($p in "src\ByteAtlas\ByteAtlas.csproj", "src\ByteAtlas.Cli\ByteAtlas.Cl
     dotnet publish (Join-Path $root $p) -c Release -r win-x64 --self-contained true -o $out -p:DebugType=None -p:DebugSymbols=false
     if ($LASTEXITCODE -ne 0) { throw "publish failed: $p" }
 }
-Copy-Item (Join-Path $root "README.md") $out
+Copy-Item (Join-Path $root "README.md"), (Join-Path $root "THIRD-PARTY-NOTICES.txt") $out
 
 if (Get-Process ByteAtlas -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$Target*" }) {
     throw "ByteAtlas is running from $Target - close it first."
