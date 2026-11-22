@@ -79,9 +79,11 @@ clean-room, open source. Version 0.1.0 (2026-11-21).
 
 ## Open
 
-- [ ] Duplicate search as its own tool (today a template inside File search): duplicate **files** and duplicate
-      **folders** (same contents: names, sizes, hashes; folders that are subsets of each other), grouped results
-      with total space that could be freed, keep-one selection rules, delete / hard-link / move the extra copies.
+- [ ] Duplicate search inside the main window, not a separate tool window: new tabs next to Chart / Details /
+      Extensions / …, **Duplicate Files** and **Duplicate Folders** (same contents: names, sizes, hashes; folders that
+      are subsets of each other), working on the current scan / tree selection like the other tabs. Grouped results
+      with the space that could be freed, keep-one selection rules, delete / hard-link / move the extra copies; a
+      selected group shows in the tree and the chart. (Today duplicates are only a template in the File search window.)
 - [ ] Chart colours per file type: every extension / file group gets its own colour in the treemap, pie and bar
       charts, with a legend, editable colours (Options), the same colour for a type everywhere in the app.
 - [ ] Details view: file and folder icons, with folder icons drawn for both dark and light mode (no light outlines
