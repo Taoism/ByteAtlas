@@ -115,7 +115,7 @@ clean-room, open source. Version 0.1.0 (2026-11-21).
   error / warning messages, crashes, command line runs (addresses without user names or tokens);
   Help › Open log folder.
 
-## Done (next version, 2026-11-22)
+## Done (0.6.0, 2026-11-22)
 
 - Shared space: Tools › Measure shared space (and after Clone selected…) finds clones / hard links sharing blocks;
   the overview shows Shared and Really used. History chart: times on the axis when the scans are close together.

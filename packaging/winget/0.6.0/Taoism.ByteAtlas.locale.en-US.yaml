@@ -1,0 +1,25 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.9.0.schema.json
+PackageIdentifier: Taoism.ByteAtlas
+PackageVersion: 0.6.0
+PackageLocale: en-US
+Publisher: Taoism
+PublisherUrl: https://github.com/Taoism
+PackageName: ByteAtlas
+PackageUrl: https://github.com/Taoism/ByteAtlas
+License: MIT
+LicenseUrl: https://github.com/Taoism/ByteAtlas/blob/main/LICENSE
+ShortDescription: Disk space analyzer - see what takes up the space on your drives
+Description: |-
+  ByteAtlas shows what fills your drives: a size tree, treemap / pie / bar charts, file types, owners, age of files,
+  duplicate files and folders, history, file search, exports (Excel, PDF, HTML, CSV) and a command-line tool.
+  Reads the NTFS master file table for fast scans; also SSH, S3, Azure Blob, WebDAV and disk images.
+Moniker: byteatlas
+Tags:
+- disk-space
+- disk-usage
+- treemap
+- duplicates
+- storage
+ReleaseNotesUrl: https://github.com/Taoism/ByteAtlas/releases/tag/v0.6.0
+ManifestType: defaultLocale
+ManifestVersion: 1.9.0
