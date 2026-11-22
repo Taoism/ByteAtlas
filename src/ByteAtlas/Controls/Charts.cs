@@ -428,6 +428,53 @@ public sealed class TreemapChart : ChartBase
     private const double HeaderH = 15;
     private const double MinTile = 3;
 
+    public event EventHandler? UpRequested;
+
+    public TreemapChart()
+    {
+        Focusable = true;
+        GotFocus += (_, _) => InvalidateVisual();
+        LostFocus += (_, _) => InvalidateVisual();
+    }
+
+    /// <summary>Keyboard: arrows move between the tiles of the shown folder, Enter zooms in, Backspace goes up.</summary>
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        base.OnKeyDown(e);
+        var top = _tiles.Where(t => t.Depth == 0).Select(t => t.Item).ToList();
+        if (top.Count == 0)
+            return;
+        var i = _highlight == null ? -1 : top.FindIndex(x => ReferenceEquals(x, _highlight));
+        switch (e.Key)
+        {
+            case Key.Right or Key.Down:
+                Click(top[Math.Min(top.Count - 1, i + 1)]);
+                break;
+            case Key.Left or Key.Up:
+                Click(top[Math.Max(0, i - 1)]);
+                break;
+            case Key.Home:
+                Click(top[0]);
+                break;
+            case Key.End:
+                Click(top[^1]);
+                break;
+            case Key.Enter when i >= 0:
+                DoubleClick(top[i]);
+                break;
+            case Key.Back:
+                UpRequested?.Invoke(this, EventArgs.Empty);
+                break;
+            case Key.F10 when e.KeyModifiers.HasFlag(KeyModifiers.Shift) && i >= 0:
+            case Key.Apps when i >= 0:
+                RightClick(top[i]);
+                break;
+            default:
+                return;
+        }
+        e.Handled = true;
+    }
+
     public override void Render(DrawingContext ctx)
     {
         _tiles.Clear();
@@ -462,6 +509,8 @@ public sealed class TreemapChart : ChartBase
             if (t.Item != null)
                 ctx.DrawRectangle(null, new Pen(Brushes.White, 2), t.Rect.Deflate(1));
         }
+        if (IsFocused)
+            ctx.DrawRectangle(null, new Pen(this.ThemeBrush("AccentBrush", Brushes.DodgerBlue), 1, DashStyle.Dash), new Rect(Bounds.Size).Deflate(1));
     }
 
     private void Layout(DrawingContext ctx, DirNode dir, Rect r, int depth, Pen edge)

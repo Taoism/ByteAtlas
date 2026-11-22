@@ -16,7 +16,7 @@ public static class Platform
     public static void MapNetworkDrive(IntPtr owner = default)
     {
         if (OperatingSystem.IsWindows())
-            Win32.WNetConnectionDialog(owner, 1);
+            _ = Win32.WNetConnectionDialog(owner, 1);
     }
 
     public static List<string> ServerShares(string server) =>

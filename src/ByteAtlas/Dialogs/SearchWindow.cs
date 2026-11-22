@@ -56,6 +56,8 @@ public sealed class SearchWindow : Window
     private SearchCriteria _criteria = new();
     private bool _duplicates;
 
+    private static readonly string[] ResultColumns = ["Name", "Size", "Allocated", "Modified", "Accessed", "Owner", "Folder"];
+
     public event EventHandler<Item>? ShowItem;
     public event EventHandler? FilesChanged;
 
@@ -140,7 +142,7 @@ public sealed class SearchWindow : Window
         left.Children.Add(startRow);
         left.Children.Add(new ScrollViewer { Content = criteria, Padding = new Thickness(0, 0, 10, 0) });
 
-        _grid = GridFactory.Create(new[] { "Name", "Size", "Allocated", "Modified", "Accessed", "Owner", "Folder" }.Select(k => GridFactory.ItemColumns[k]));
+        _grid = GridFactory.Create(ResultColumns.Select(k => GridFactory.ItemColumns[k]));
         _grid.DoubleTapped += (_, _) =>
         {
             if (_grid.SelectedItem is ItemRow r)
@@ -373,7 +375,9 @@ public sealed class SearchWindow : Window
         if (_duplicates)
         {
             var groups = rows.GroupBy(r => r.Group).ToList();
-            var wasted = groups.Sum(g => g.Skip(1).Sum(r => r.Size));
+            long wasted = 0;
+            foreach (var g in groups)
+                wasted += g.Skip(1).Sum(r => r.Size);
             _summary.Text = $"{rows.Count:N0} duplicate files in {groups.Count:N0} groups  ·  {_settings.Size(wasted)} could be freed";
         }
         else

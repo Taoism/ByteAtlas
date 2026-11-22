@@ -100,7 +100,7 @@ public sealed class DriveListPanel : UserControl
         }
     }
 
-    private Control Row(string path, string label, long total, long free, string fs, bool removable = false)
+    private Button Row(string path, string label, long total, long free, string fs, bool removable = false)
     {
         var used = total - free;
         var g = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), RowDefinitions = new RowDefinitions("Auto,Auto"), Margin = new Thickness(2, 1) };

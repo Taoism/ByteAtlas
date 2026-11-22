@@ -86,6 +86,16 @@ public static class Scanner
             Finish(s);
             s.State = ScanState.Cancelled;
         }
+        catch (OutOfMemoryException)
+        {
+            // keep what was read; tell why it stopped
+            const string Msg = "Not enough memory for this scan. Close other scans or programs, or scan a smaller folder.";
+            s.AddError(s.Path, Msg);
+            s.Root.Error = Msg;
+            GC.Collect();
+            Finish(s);
+            s.State = ScanState.Failed;
+        }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidOperationException)
         {
             s.AddError(s.Path, e.Message);

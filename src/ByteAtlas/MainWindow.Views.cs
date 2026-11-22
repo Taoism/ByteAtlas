@@ -44,6 +44,22 @@ public sealed partial class MainWindow
 
     private ViewFilter? _filter;
 
+    /// <summary>Puts the keyboard focus into the shown tab (the chart, the list, …).</summary>
+    private void FocusTab()
+    {
+        Control? target = _tabs.SelectedIndex switch
+        {
+            0 => _treemap.IsVisible ? _treemap : _pie.IsVisible ? _pie : _bars,
+            1 => _settings.DetailsThumbnails ? _thumbs?.List : _details,
+            2 => _extGrid,
+            3 => _userGrid,
+            4 => _ageGrid,
+            5 => _topGrid,
+            _ => _historyChart,
+        };
+        target?.Focus();
+    }
+
     private void BuildTabs()
     {
         _tabs.Items.Add(new TabItem { Header = "Chart", Content = ChartTab() });
@@ -63,7 +79,7 @@ public sealed partial class MainWindow
     }
 
     // wrap the tab content with the overview strip on top
-    private Control WithOverview(Control content, Control? toolbar = null)
+    private static DockPanel WithOverview(Control content, Control? toolbar = null)
     {
         var dock = new DockPanel();
         var over = new Border { Classes = { "card" }, Margin = new Thickness(0, 0, 0, 6), Child = new ContentControl() };
@@ -247,6 +263,15 @@ public sealed partial class MainWindow
             else if (t is FileItem f)
                 Shell.Open(f.FullPath);
         };
+        _treemap.UpRequested += (_, _) => GoUp();
+        Avalonia.Automation.AutomationProperties.SetName(_treemap, "Treemap of the selected folder");
+        Avalonia.Automation.AutomationProperties.SetName(_pie, "Pie chart");
+        Avalonia.Automation.AutomationProperties.SetName(_bars, "Bar chart");
+        Avalonia.Automation.AutomationProperties.SetName(_details, "Contents of the selected folder");
+        Avalonia.Automation.AutomationProperties.SetName(_topGrid, "Largest files");
+        Avalonia.Automation.AutomationProperties.SetName(_extGrid, "File types");
+        Avalonia.Automation.AutomationProperties.SetName(_userGrid, "Owners");
+        Avalonia.Automation.AutomationProperties.SetName(_ageGrid, "Age of files");
         _treemap.ItemRightClicked += (_, t) =>
         {
             if (t is Item i && i.Parent != null)
@@ -726,9 +751,11 @@ public sealed partial class MainWindow
         return WithOverview(_topGrid, bar);
     }
 
+    private static readonly string[] TopColumns = ["Name", "Size", "Allocated", "Modified", "Accessed", "Owner", "Path"];
+
     private DataGrid CreateTopGrid()
     {
-        var g = GridFactory.Create(new[] { "Name", "Size", "Allocated", "Modified", "Accessed", "Owner", "Path" }.Select(k => GridFactory.ItemColumns[k]));
+        var g = GridFactory.Create(TopColumns.Select(k => GridFactory.ItemColumns[k]));
         g.DoubleTapped += (_, _) =>
         {
             if (g.SelectedItem is ItemRow r)

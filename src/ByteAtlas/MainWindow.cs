@@ -260,7 +260,7 @@ public sealed partial class MainWindow : Window
 
     // ---------------- toolbar ----------------
 
-    private Control BuildToolbar()
+    private Border BuildToolbar()
     {
         _pathBox.KeyDown += (_, e) =>
         {
@@ -327,7 +327,7 @@ public sealed partial class MainWindow : Window
     private ComboBox? _modeCombo;
     private ComboBox? _unitCombo;
 
-    private static Control Sep() => new Border { Width = 1, Height = 20, Margin = new Thickness(4, 0), Background = Brushes.Transparent, BorderThickness = new Thickness(1, 0, 0, 0), BorderBrush = new SolidColorBrush(Color.FromArgb(0x50, 0x80, 0x80, 0x80)) };
+    private static Border Sep() => new Border { Width = 1, Height = 20, Margin = new Thickness(4, 0), Background = Brushes.Transparent, BorderThickness = new Thickness(1, 0, 0, 0), BorderBrush = new SolidColorBrush(Color.FromArgb(0x50, 0x80, 0x80, 0x80)) };
 
     internal static Button ToolButton(string text, Action action, string? tip = null)
     {
@@ -343,6 +343,7 @@ public sealed partial class MainWindow : Window
     {
         var b = ToolButton(text ?? "", action, tip ?? text);
         b.Content = Icons.Content(icon, text);
+        Avalonia.Automation.AutomationProperties.SetName(b, text ?? tip ?? icon);
         return b;
     }
 
@@ -350,6 +351,7 @@ public sealed partial class MainWindow : Window
     {
         var b = ToolButton(text ?? "", action, tip ?? text);
         b.Content = Icons.Content(icon, text);
+        Avalonia.Automation.AutomationProperties.SetName(b, text ?? tip ?? icon);
         return b;
     }
 
@@ -641,6 +643,10 @@ public sealed partial class MainWindow : Window
         Ctrl+S   Save scan to index file
         Ctrl+P   Print report (PDF)
         Alt+←/→  Back / forward      Backspace  Parent folder
+        Alt+1…7  Chart, Details, Extensions, Users, Age, Top Files, History
+        F6       Move between the tree and the right side
+        Treemap  Arrows: tiles · Enter: zoom in · Backspace: up · Shift+F10: menu
+        Shift + right click  Windows Explorer menu
         Del      Delete (recycle bin)      Shift+Del  Delete for good
         Ctrl+C   Copy path
         """;
@@ -655,6 +661,22 @@ public sealed partial class MainWindow : Window
         Bind(Key.Delete, KeyModifiers.None, () => _ = DeleteSelectedAsync(true));
         Bind(Key.Delete, KeyModifiers.Shift, () => _ = DeleteSelectedAsync(false));
         Bind(Key.C, KeyModifiers.Control, () => _ = CopyPathsAsync());
+        for (var i = 0; i < 7; i++)
+        {
+            var tab = i;
+            Bind(Key.D1 + i, KeyModifiers.Alt, () =>
+            {
+                _tabs.SelectedIndex = tab;
+                FocusTab();
+            });
+        }
+        Bind(Key.F6, KeyModifiers.None, () =>
+        {
+            if (_tree.IsKeyboardFocusWithin)
+                FocusTab();
+            else
+                _tree.FocusList();
+        });
     }
 
     private sealed class RelayCommand(Action action) : System.Windows.Input.ICommand

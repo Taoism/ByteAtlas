@@ -270,26 +270,14 @@ public sealed class FileSystemScanner
                 }
             }
         }
-        var hFind = Win32.FindFirstStreamW(Win32.LongPath(full), 0, out var data, 0);
-        if (hFind == new IntPtr(-1))
-            return alloc;
-        try
+        foreach (var (size, name) in Win32.Streams(full))
         {
-            do
-            {
-                if (data.cStreamName != "::$DATA")
-                {
-                    f.StreamCount++;
-                    f.StreamSize += data.StreamSize;
-                    if (alloc > 0 || f.LinkCount <= 1)
-                        alloc += RoundUp(data.StreamSize);
-                }
-            }
-            while (Win32.FindNextStreamW(hFind, out data));
-        }
-        finally
-        {
-            Win32.FindClose(hFind);
+            if (name == "::$DATA")
+                continue;
+            f.StreamCount++;
+            f.StreamSize += size;
+            if (alloc > 0 || f.LinkCount <= 1)
+                alloc += RoundUp(size);
         }
         return alloc;
     }

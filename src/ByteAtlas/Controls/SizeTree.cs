@@ -59,6 +59,7 @@ public sealed class SizeTree : UserControl
             Padding = new Thickness(0),
         };
         _list.Classes.Add("sizeTree");
+        Avalonia.Automation.AutomationProperties.SetName(_list, "Folders by size");
         _list.SelectionChanged += (_, _) => SelectionChanged?.Invoke(this, EventArgs.Empty);
         _list.DoubleTapped += (_, e) =>
         {
@@ -151,6 +152,14 @@ public sealed class SizeTree : UserControl
     }
 
     public TreeRow? Selected => _list.SelectedItem as TreeRow;
+
+    public void FocusList()
+    {
+        if (_list.SelectedItem is { } sel && _list.ContainerFromItem(sel) is { } c)
+            c.Focus();
+        else
+            _list.Focus();
+    }
 
     public IReadOnlyList<TreeRow> SelectedRows => [.. _list.SelectedItems?.OfType<TreeRow>() ?? []];
 

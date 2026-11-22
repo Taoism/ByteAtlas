@@ -289,7 +289,7 @@ public class SearchTests
         var s = t.Scan(o);
         var other = s.Root.FindRelative("other")!;
         Assert.Equal(2, other.Files.Single(f => f.Name == "dup2.dat").LinkCount);
-        Assert.True(other.Files.Count(f => f.Allocated == 0) == 1); // the second link takes no extra space
+        Assert.Equal(1, other.Files.Count(f => f.Allocated == 0)); // the second link takes no extra space
     }
 }
 

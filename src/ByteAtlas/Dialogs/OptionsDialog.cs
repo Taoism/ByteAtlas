@@ -97,14 +97,14 @@ public sealed class OptionsDialog : DialogWindow
         return c;
     }
 
-    private Control Number(string label, double value, double min, double max, Action<double> set, string format = "0")
+    private StackPanel Number(string label, double value, double min, double max, Action<double> set, string format = "0")
     {
         var n = new NumericUpDown { Value = (decimal)value, Minimum = (decimal)min, Maximum = (decimal)max, FormatString = format, Width = 140 };
         _apply.Add(() => set((double)(n.Value ?? (decimal)value)));
         return Row(8, Label(label), n);
     }
 
-    private Control SizeBox(string label, long value, Action<long> set)
+    private StackPanel SizeBox(string label, long value, Action<long> set)
     {
         var t = new TextBox { Text = SizeFormat.Format(value), Width = 140 };
         _apply.Add(() =>
@@ -115,14 +115,14 @@ public sealed class OptionsDialog : DialogWindow
         return Row(8, Label(label), t);
     }
 
-    private Control TextField(string label, string value, Action<string> set, double width = 300)
+    private StackPanel TextField(string label, string value, Action<string> set, double width = 300)
     {
         var t = new TextBox { Text = value, Width = width };
         _apply.Add(() => set(t.Text ?? ""));
         return Row(8, Label(label), t);
     }
 
-    private Control Choice(string label, string[] items, int index, Action<int> set)
+    private StackPanel Choice(string label, string[] items, int index, Action<int> set)
     {
         var c = new ComboBox { ItemsSource = items, SelectedIndex = index, MinWidth = 200 };
         _apply.Add(() => set(Math.Max(0, c.SelectedIndex)));
@@ -131,7 +131,7 @@ public sealed class OptionsDialog : DialogWindow
 
     // ---------- pages ----------
 
-    private Control ViewPage() => PageOf(
+    private StackPanel ViewPage() => PageOf(
         H("Appearance"),
         Choice("Theme:", ["Dark", "Light", "Follow the system"], _s.Theme switch { "Dark" => 0, "Light" => 1, _ => 2 }, i => _s.Theme = i switch { 0 => "Dark", 1 => "Light", _ => "System" }),
         Check("Compact line height", _s.CompactRows, v => _s.CompactRows = v),
@@ -150,7 +150,7 @@ public sealed class OptionsDialog : DialogWindow
         Check("Bring the window to the front when a scan finishes", _s.NotifyWhenDone, v => _s.NotifyWhenDone = v),
         Number("Entries in \"Recently scanned\":", _s.RecentMax, 0, 50, v => _s.RecentMax = (int)v));
 
-    private Control TreePage() => PageOf(
+    private StackPanel TreePage() => PageOf(
         H("Directory tree"),
         Check("Gradient bars as size indicators", _s.ShowGradientBars, v => _s.ShowGradientBars = v),
         Check("Bold for elements larger than the size below", _s.BoldLarge, v => _s.BoldLarge = v),
@@ -165,7 +165,7 @@ public sealed class OptionsDialog : DialogWindow
         Check("Show the drive list", _s.ShowDriveList, v => _s.ShowDriveList = v),
         Check("Show the status bar", _s.ShowStatusBar, v => _s.ShowStatusBar = v));
 
-    private Control GroupsPage()
+    private StackPanel GroupsPage()
     {
         var box = new TextBox
         {
@@ -190,7 +190,7 @@ public sealed class OptionsDialog : DialogWindow
         return PageOf(H("File groups"), Label("One group per line: name = extensions separated by ';'. Used by \"Group file types\", the treemap colours and the Description column.", true), box, reset);
     }
 
-    private Control AgePage()
+    private StackPanel AgePage()
     {
         var box = new TextBox
         {
@@ -222,7 +222,7 @@ public sealed class OptionsDialog : DialogWindow
             Choice("Date used:", ["Last modified", "Last accessed", "Created"], (int)_s.AgeBasis, i => _s.AgeBasis = (AgeBasis)i));
     }
 
-    private Control ChartsPage() => PageOf(
+    private StackPanel ChartsPage() => PageOf(
         H("Pie and bar charts"),
         Check("Show legend", _s.ChartLegend, v => _s.ChartLegend = v),
         Check("Show labels", _s.ChartLabels, v => _s.ChartLabels = v),
@@ -235,7 +235,7 @@ public sealed class OptionsDialog : DialogWindow
         Check("Colour by file type (else by level)", _s.TreemapColorByType, v => _s.TreemapColorByType = v),
         Number("Level of detail (folder levels):", _s.TreemapDepth, 1, 20, v => _s.TreemapDepth = (int)v));
 
-    private Control ScanPage()
+    private StackPanel ScanPage()
     {
         var o = _s.Scan;
         return PageOf(
@@ -258,7 +258,7 @@ public sealed class OptionsDialog : DialogWindow
             Label("File type and age statistics are always available; they are computed for the selected folder when you open their tab.", true));
     }
 
-    private Control FilterPage()
+    private StackPanel FilterPage()
     {
         var box = new TextBox
         {
@@ -316,7 +316,7 @@ public sealed class OptionsDialog : DialogWindow
             box);
     }
 
-    private Control ExportPage()
+    private StackPanel ExportPage()
     {
         var e = _s.Export;
         var cols = new WrapPanel { Orientation = Orientation.Horizontal, ItemSpacing = 12, LineSpacing = 4 };
@@ -355,7 +355,7 @@ public sealed class OptionsDialog : DialogWindow
             Check("Attach the report (Excel)", _s.MailAttach, v => _s.MailAttach = v));
     }
 
-    private Control SystemPage()
+    private StackPanel SystemPage()
     {
         var page = PageOf(
             H("On start"),
