@@ -29,8 +29,8 @@ public sealed class RemoteDialog : DialogWindow
     private static readonly string[] NewSource = ["(new source)"];
 
     private readonly AppSettings _settings;
-    private readonly ComboBox _saved = new() { MinWidth = 260 };
-    private readonly ComboBox _kind = new() { ItemsSource = Kinds.Select(k => k.Label).ToList(), SelectedIndex = 0, MinWidth = 260 };
+    private readonly Controls.AccessibleComboBox _saved = new() { MinWidth = 260 };
+    private readonly Controls.AccessibleComboBox _kind = new() { ItemsSource = Kinds.Select(k => k.Label).ToList(), SelectedIndex = 0, MinWidth = 260 };
     private readonly Grid _fields = new() { ColumnDefinitions = new ColumnDefinitions("150,*"), RowSpacing = 8, ColumnSpacing = 10 };
     private readonly TextBox _host = new() { PlaceholderText = "server.example.com" };
     private readonly TextBox _port = new() { Width = 90, HorizontalAlignment = HorizontalAlignment.Left };

@@ -116,6 +116,11 @@ clean-room, open source. Version 0.1.0 (2026-11-21).
   Help › Open log folder.
 
 ## Open
+- [ ] Clones / shared blocks: show the space really used (a "shared" figure in Details / overview).
+- [ ] History chart: time labels when the scans are close together (same day).
+- [ ] Low-space note: on the screen ByteAtlas was last used on, not always the primary one.
+- [ ] Combo boxes reachable through UI automation (Value pattern), like the result grids.
+- [ ] Portable mode: settings, history, checksums, cache and logs next to the program.
 - [ ] Submit the winget manifest (packaging\winget\0.5.0) to microsoft/winget-pkgs (ask first).
 - [ ] Later: similar images / audio; memory + speed pass for 10 M+ file scans.
 - [ ] Chart colours per file type: every extension / file group gets its own colour in the treemap, pie and bar

@@ -690,10 +690,12 @@ public sealed class TreeRowView : Control
         var cy = h / 2;
         if (r.Kind == RowKind.File)
         {
-            var b = this.ThemeBrush("GlyphBrush", Brushes.Gray);
-            var pen = new Pen(b, 1.2);
-            var geo = new PolylineGeometry([new Point(x + 3, cy - 6), new Point(x + 9, cy - 6), new Point(x + 12, cy - 3), new Point(x + 12, cy + 6), new Point(x + 3, cy + 6)], true);
-            ctx.DrawGeometry(null, pen, geo);
+            ItemIcon.DrawFile(ctx, this, x + 1, cy, Palette.ForExtension(r.Item.Extension, ItemIcon.Groups));
+            return;
+        }
+        if (r.Kind != RowKind.FilesGroup && r.Level > 0)
+        {
+            ItemIcon.DrawFolder(ctx, this, x, cy);
             return;
         }
         var folder = r.Kind == RowKind.FilesGroup

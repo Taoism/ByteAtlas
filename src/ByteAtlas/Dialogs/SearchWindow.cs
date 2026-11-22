@@ -25,10 +25,10 @@ public sealed class SearchWindow : Window
     private readonly TextBox _paths = new() { AcceptsReturn = true, Height = 64, TextWrapping = TextWrapping.NoWrap };
     private readonly TextBox _include = new() { PlaceholderText = "e.g. *.iso;*.mkv (empty = all)" };
     private readonly TextBox _exclude = new() { PlaceholderText = "names or folders to leave out, e.g. node_modules;*.sys" };
-    private readonly ComboBox _patternKind = new() { ItemsSource = new[] { "Wildcards", "Regular expression", "Whole name" }, SelectedIndex = 0 };
+    private readonly Controls.AccessibleComboBox _patternKind = new() { ItemsSource = new[] { "Wildcards", "Regular expression", "Whole name" }, SelectedIndex = 0 };
     private readonly TextBox _minSize = new() { PlaceholderText = "e.g. 100 MB", Width = 110 };
     private readonly TextBox _maxSize = new() { PlaceholderText = "no limit", Width = 110 };
-    private readonly ComboBox _dateBasis = new() { ItemsSource = new[] { "Last modified", "Last accessed", "Created" }, SelectedIndex = 0 };
+    private readonly Controls.AccessibleComboBox _dateBasis = new() { ItemsSource = new[] { "Last modified", "Last accessed", "Created" }, SelectedIndex = 0 };
     private readonly NumericUpDown _olderDays = new() { Minimum = 0, Maximum = 36500, Value = 0, FormatString = "0", Width = 130 };
     private readonly NumericUpDown _newerDays = new() { Minimum = 0, Maximum = 36500, Value = 0, FormatString = "0", Width = 130 };
     private readonly TextBox _owner = new() { PlaceholderText = "part of the owner name" };
@@ -41,10 +41,10 @@ public sealed class SearchWindow : Window
     private readonly NumericUpDown _max = new() { Minimum = 0, Maximum = 10_000_000, Value = 0, FormatString = "0", Width = 130 };
     private readonly CheckBox _dupName = new() { Content = "Same name" };
     private readonly CheckBox _dupDate = new() { Content = "Same date" };
-    private readonly ComboBox _dupHash = new() { ItemsSource = new[] { "Size only (no content check)", "MD5 checksum", "SHA-256 checksum" }, SelectedIndex = 1 };
+    private readonly Controls.AccessibleComboBox _dupHash = new() { ItemsSource = new[] { "Size only (no content check)", "MD5 checksum", "SHA-256 checksum" }, SelectedIndex = 1 };
     private readonly StackPanel _dupPanel;
     private readonly TextBox _permAccount = new() { PlaceholderText = "DOMAIN\\user, user or group" };
-    private readonly ComboBox _permLevel = new() { ItemsSource = new[] { "Any access", "Read", "Write", "Modify", "Full control" }, SelectedIndex = 0 };
+    private readonly Controls.AccessibleComboBox _permLevel = new() { ItemsSource = new[] { "Any access", "Read", "Write", "Modify", "Full control" }, SelectedIndex = 0 };
     private readonly CheckBox _permExplicit = new() { Content = "Only where granted explicitly (not inherited)", IsChecked = true };
     private readonly CheckBox _permFolders = new() { Content = "Folders only (files usually inherit; faster)", IsChecked = true };
     private readonly StackPanel _permPanel = new() { Spacing = 8 };

@@ -128,7 +128,7 @@ public sealed partial class MainWindow
         var bar = new WrapPanel { Orientation = Orientation.Horizontal, ItemSpacing = 6, LineSpacing = 4 };
         v.Find = ToolButton("Find", () => FindDuplicatesAsync(v), "Look for duplicates below the folder selected in the tree");
         bar.Children.Add(v.Find);
-        var match = new ComboBox
+        var match = new Controls.AccessibleComboBox
         {
             ItemsSource = new[] { "Same contents", "Same name and contents", "Same name and size (fast)" },
             SelectedIndex = (int)_settings.DuplicateMatch,
@@ -139,7 +139,7 @@ public sealed partial class MainWindow
             : "Contents: a quick checksum of start and end first, then of the whole file");
         match.SelectionChanged += (_, _) => _settings.DuplicateMatch = (DuplicateMatch)Math.Max(0, match.SelectedIndex);
         bar.Children.Add(match);
-        var hash = new ComboBox { ItemsSource = new[] { "MD5", "SHA-256" }, SelectedIndex = _settings.DuplicateHash == Search.HashKind.Sha256 ? 1 : 0, MinWidth = 90 };
+        var hash = new Controls.AccessibleComboBox { ItemsSource = new[] { "MD5", "SHA-256" }, SelectedIndex = _settings.DuplicateHash == Search.HashKind.Sha256 ? 1 : 0, MinWidth = 90 };
         ToolTip.SetTip(hash, "Checksum used to compare whole files");
         hash.SelectionChanged += (_, _) => _settings.DuplicateHash = hash.SelectedIndex == 1 ? Search.HashKind.Sha256 : Search.HashKind.Md5;
         bar.Children.Add(hash);
@@ -174,7 +174,7 @@ public sealed partial class MainWindow
         bar.Children.Add(ToolButton("Settings…", DuplicateSettingsAsync, "Protected folders, ignored folders, remembered checksums"));
         bar.Children.Add(new Border { Width = 10 });
         bar.Children.Add(new TextBlock { Text = "Keep", VerticalAlignment = VerticalAlignment.Center });
-        var keep = new ComboBox { ItemsSource = KeepRules, SelectedItem = KeepRules.Contains(_settings.DuplicateKeep) ? _settings.DuplicateKeep : KeepRules[0], MinWidth = 150 };
+        var keep = new Controls.AccessibleComboBox { ItemsSource = KeepRules, SelectedItem = KeepRules.Contains(_settings.DuplicateKeep) ? _settings.DuplicateKeep : KeepRules[0], MinWidth = 150 };
         Avalonia.Automation.AutomationProperties.SetName(keep, "Copy to keep");
         keep.SelectionChanged += (_, _) =>
         {
@@ -580,6 +580,8 @@ public sealed partial class MainWindow
         if (v.Scan is { IsGroup: false, IndexFile: null } s && v.Scope is { } scope && !_running.ContainsKey(s))
         {
             v.Scan = null;
+            if (clone)
+                _measureAfterScan = scope.FullPath; // the overview then shows what the clones share
             Run(s, (sess, ct) => Scanner.RefreshAsync(sess, scope, true, ct));
         }
     }

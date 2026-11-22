@@ -207,6 +207,28 @@ public static class GridFactory
                 }),
             };
         }
+        if (c.Text == nameof(ItemRow.Name))
+        {
+            // item names with their icon (folder, or a page in the colour of the file type)
+            return new DataGridTemplateColumn
+            {
+                Header = c.Header,
+                Width = new DataGridLength(c.Width),
+                SortMemberPath = nameof(ItemRow.Name),
+                CellTemplate = new FuncDataTemplate<ItemRow>((r, _) => new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Spacing = 6,
+                    Margin = new Thickness(8, 0, 4, 0),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Children =
+                    {
+                        new Controls.ItemIcon { Item = r?.Item },
+                        new TextBlock { Text = r?.Name, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis },
+                    },
+                }),
+            };
+        }
         var col = new DataGridTextColumn
         {
             Header = c.Header,

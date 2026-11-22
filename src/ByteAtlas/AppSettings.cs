@@ -69,7 +69,21 @@ public sealed class AppSettings
     // ----- statistics -----
     public AgeBasis AgeBasis { get; set; } = AgeBasis.Modified;
     public List<AgeInterval> AgeIntervals { get; set; } = [.. new AgeIntervals().Intervals.Select(i => new AgeInterval { Label = i.Label, Days = i.MaxAge == TimeSpan.MaxValue ? 0 : i.MaxAge.TotalDays })];
-    public Dictionary<string, string> FileGroups { get; set; } = new FileGroups().Groups;
+    public Dictionary<string, string> FileGroups
+    {
+        get => _fileGroups;
+        set
+        {
+            _fileGroups = value;
+            _groupSet = null;
+        }
+    }
+
+    private Dictionary<string, string> _fileGroups = new FileGroups().Groups;
+    private FileGroups? _groupSet;
+
+    /// <summary>Colours of file groups / ".ext" types ("#RRGGBB"), chosen in Options › Colours.</summary>
+    public Dictionary<string, string> TypeColors { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public bool GroupExtensions { get; set; }
     public int TopCount { get; set; } = 100;
 
@@ -168,7 +182,8 @@ public sealed class AppSettings
     };
 
     [JsonIgnore]
-    public FileGroups FileGroupSet => new() { Groups = FileGroups };
+    /// <summary>The file groups, made once per change (charts colour every type with it).</summary>
+    public FileGroups FileGroupSet => _groupSet ??= new() { Groups = FileGroups };
 
     public static string Folder => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ByteAtlas");
 

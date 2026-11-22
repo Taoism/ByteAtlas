@@ -194,7 +194,7 @@ public sealed class RenameWindow : Window
         }
         void Choice<T>(string label, string[] items, T value, Action<T> set) where T : struct, Enum
         {
-            var c = new ComboBox { ItemsSource = items, SelectedIndex = Convert.ToInt32(value, System.Globalization.CultureInfo.InvariantCulture), Width = 250 };
+            var c = new Controls.AccessibleComboBox { ItemsSource = items, SelectedIndex = Convert.ToInt32(value, System.Globalization.CultureInfo.InvariantCulture), Width = 250 };
             c.SelectionChanged += (_, _) =>
             {
                 set((T)Enum.ToObject(typeof(T), Math.Max(0, c.SelectedIndex)));

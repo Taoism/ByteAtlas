@@ -1,3 +1,4 @@
+using Avalonia.Media;
 using Avalonia;
 using Avalonia.Platform.Storage;
 using Avalonia.Controls;
@@ -26,6 +27,7 @@ public sealed class OptionsDialog : DialogWindow
         Add("View", ViewPage());
         Add("Directory tree", TreePage());
         Add("File groups", GroupsPage());
+        Add("Colours", ColorsPage());
         Add("Age of files", AgePage());
         Add("Charts", ChartsPage());
         Add("Scan", ScanPage());
@@ -48,6 +50,7 @@ public sealed class OptionsDialog : DialogWindow
             if (await MessageBox.ConfirmAsync(this, "Reset every option to its default?", "Reset", "Options"))
             {
                 Copy(new AppSettings(), _s);
+                Palette.Load(_s.TypeColors);
                 Close(true);
             }
         });
@@ -124,7 +127,7 @@ public sealed class OptionsDialog : DialogWindow
 
     private StackPanel Choice(string label, string[] items, int index, Action<int> set)
     {
-        var c = new ComboBox { ItemsSource = items, SelectedIndex = index, MinWidth = 200 };
+        var c = new Controls.AccessibleComboBox { ItemsSource = items, SelectedIndex = index, MinWidth = 200 };
         _apply.Add(() => set(Math.Max(0, c.SelectedIndex)));
         return Row(8, Label(label), c);
     }
@@ -191,6 +194,86 @@ public sealed class OptionsDialog : DialogWindow
         });
         var reset = MainWindow.ToolButton("Default groups", () => box.Text = string.Join(Environment.NewLine, new FileGroups().Groups.Select(g => $"{g.Key} = {g.Value}")));
         return PageOf(H("File groups"), Label("One group per line: name = extensions separated by ';'. Used by \"Group file types\", the treemap colours and the Description column.", true), box, reset);
+    }
+
+    private static readonly Color[] Swatches =
+    [
+        .. Palette.Colors,
+        Color.Parse("#C0392B"), Color.Parse("#E74C3C"), Color.Parse("#D35400"), Color.Parse("#F1C40F"),
+        Color.Parse("#27AE60"), Color.Parse("#16A085"), Color.Parse("#2980B9"), Color.Parse("#8E44AD"),
+        Color.Parse("#B03A6E"), Color.Parse("#7F8C8D"), Color.Parse("#566573"), Color.Parse("#A0784B"),
+    ];
+
+    private static string Hex(Color c) => $"#{c.R:X2}{c.G:X2}{c.B:X2}";
+
+    /// <summary>Colours of the file groups and single file types: the same in the treemap, pie, bars and lists.</summary>
+    private StackPanel ColorsPage()
+    {
+        var rows = new StackPanel { Spacing = 4 };
+        var groups = _s.FileGroups.Keys.Append(FileGroups.Other).Distinct().ToList();
+        var edits = new List<(string Group, TextBox Box)>();
+        foreach (var g in groups)
+        {
+            var box = new TextBox { Width = 96, PlaceholderText = Hex(Palette.DefaultForGroup(g)), Text = _s.TypeColors.GetValueOrDefault(g, "") };
+            Avalonia.Automation.AutomationProperties.SetName(box, "Colour of " + g);
+            var swatch = new Border { Width = 22, Height = 22, CornerRadius = new CornerRadius(3) };
+            void Show() => swatch.Background = new SolidColorBrush(Color.TryParse(box.Text, out var c) ? c : Palette.DefaultForGroup(g));
+            box.TextChanged += (_, _) => Show();
+            Show();
+            // a click on the swatch offers ready-made colours
+            var pick = new WrapPanel { Width = 6 * 30 };
+            var flyout = new Flyout { Content = pick };
+            foreach (var c in Swatches)
+            {
+                var b = new Button { Width = 26, Height = 26, Margin = new Thickness(2), Padding = new Thickness(0), Background = new SolidColorBrush(c) };
+                Avalonia.Automation.AutomationProperties.SetName(b, Hex(c));
+                b.Click += (_, _) =>
+                {
+                    box.Text = Hex(c);
+                    flyout.Hide();
+                };
+                pick.Children.Add(b);
+            }
+            var swatchButton = new Button { Content = swatch, Padding = new Thickness(2), Flyout = flyout };
+            Avalonia.Automation.AutomationProperties.SetName(swatchButton, "Choose the colour of " + g);
+            var reset = new Button { Content = "Default" };
+            reset.Click += (_, _) => box.Text = "";
+            rows.Children.Add(Row(8, swatchButton, new TextBlock { Text = g, Width = 160, VerticalAlignment = VerticalAlignment.Center }, box, reset));
+            edits.Add((g, box));
+        }
+        var types = new TextBox
+        {
+            AcceptsReturn = true,
+            Height = 140,
+            Classes = { "mono" },
+            Text = string.Join(Environment.NewLine, _s.TypeColors.Where(kv => kv.Key.StartsWith('.')).Select(kv => $"{kv.Key} = {kv.Value}")),
+        };
+        Avalonia.Automation.AutomationProperties.SetName(types, "Colours of single file types");
+        _apply.Add(() =>
+        {
+            var d = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (g, box) in edits)
+                if (Color.TryParse(box.Text?.Trim(), out var c))
+                    d[g] = Hex(c);
+            foreach (var line in (types.Text ?? "").Split('\n'))
+            {
+                var i = line.IndexOf('=');
+                if (i <= 0)
+                    continue;
+                var ext = "." + line[..i].Trim().TrimStart('*', '.').ToLowerInvariant();
+                if (ext.Length > 1 && Color.TryParse(line[(i + 1)..].Trim(), out var c))
+                    d[ext] = Hex(c);
+            }
+            _s.TypeColors = d;
+            Palette.Load(d);
+        });
+        return PageOf(
+            H("Colours of file types"),
+            Label("Each file group has a colour; its file types get shades of it. The same colour is used in the treemap, the pie and bar charts and the File types list. Click a swatch for ready-made colours, or type #RRGGBB.", true),
+            rows,
+            H("Single file types"),
+            Label("Own colours for single types, one per line: .mp4 = #E07B39", true),
+            types);
     }
 
     private StackPanel AgePage()

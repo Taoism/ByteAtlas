@@ -48,7 +48,46 @@ internal static class Palette
         [FileGroups.Other] = Color.FromRgb(0x6E, 0x78, 0x86),
     };
 
-    public static Color ForGroup(string group) => GroupColors.TryGetValue(group, out var c) ? c : At(group.GetHashCode());
+    /// <summary>Colours chosen in Options › Colours: file group names and ".ext" keys.</summary>
+    public static Dictionary<string, Color> Custom { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Takes the colours from the settings ("#RRGGBB" by group name or ".ext").</summary>
+    public static void Load(IReadOnlyDictionary<string, string> colors)
+    {
+        Custom.Clear();
+        foreach (var (k, v) in colors)
+            if (Color.TryParse(v, out var c))
+                Custom[k.StartsWith('.') ? k.ToLowerInvariant() : k] = c;
+    }
+
+    public static Color DefaultForGroup(string group) => GroupColors.TryGetValue(group, out var c) ? c : At((int)(StableHash(group) % 1000));
+
+    public static Color ForGroup(string group) => Custom.TryGetValue(group, out var c) ? c : DefaultForGroup(group);
+
+    /// <summary>
+    /// The colour of a file type, the same in every chart and list: its own colour when one was chosen, else a
+    /// shade of its group's colour (types of one group stay alike); types of no group get a muted palette colour.
+    /// </summary>
+    public static Color ForExtension(string extension, FileGroups groups)
+    {
+        var key = "." + extension.TrimStart('.').ToLowerInvariant();
+        if (Custom.TryGetValue(key, out var c))
+            return c;
+        var h = StableHash(key);
+        var group = groups.GroupOf(extension);
+        if (group == FileGroups.Other && !Custom.ContainsKey(group))
+            return Shade(At((int)(h % 1000)), -0.3);
+        return Shade(ForGroup(group), ((int)(h % 7) - 3) * 0.07);
+    }
+
+    /// <summary>FNV-1a: the same number in every run (string.GetHashCode is randomized per process).</summary>
+    private static uint StableHash(string s)
+    {
+        var h = 2166136261u;
+        foreach (var ch in s)
+            h = (h ^ ch) * 16777619u;
+        return h;
+    }
 
     public static Color Shade(Color c, double f) =>
         f >= 0
@@ -498,6 +537,8 @@ public sealed class TreemapChart : ChartBase
             return;
         }
         var edge = new Pen(this.ThemeBrush("AppBackgroundBrush", Brushes.Black), 1);
+        if (ColorByType && ShowLegend && Legend() is { Count: > 0 } legend)
+            bounds = DrawLegend(ctx, bounds, legend);
         Layout(ctx, _root, bounds, 0, edge);
         if (_marked.Count > 0)
         {
@@ -602,13 +643,70 @@ public sealed class TreemapChart : ChartBase
             }
             else
             {
-                var color = ColorByType ? Palette.ForGroup(Groups.GroupOf(item.Extension)) : Palette.Shade(Palette.At(depth + 1), 0.25);
+                var color = ColorByType ? Palette.ForExtension(item.Extension, Groups) : Palette.Shade(Palette.At(depth + 1), 0.25);
                 ctx.FillRectangle(new SolidColorBrush(color), rect);
                 ctx.DrawRectangle(null, edge, rect);
                 if (ShowLabels)
                     Label(ctx, item.Name, rect.Deflate(3), 10, false);
             }
         }
+    }
+
+    public bool ShowLegend { get; set; } = true;
+
+    private (DirNode Root, long Size, FileGroups Groups, List<(string Group, long Size)> Sums)? _legend;
+    private DirNode? _legendPending;
+
+    /// <summary>File groups by size below the shown folder (counted in the background, then drawn).</summary>
+    private List<(string Group, long Size)>? Legend()
+    {
+        var root = _root!;
+        if (_legend is { } l && ReferenceEquals(l.Root, root) && l.Size == root.Size && ReferenceEquals(l.Groups, Groups))
+            return l.Sums;
+        if (!ReferenceEquals(_legendPending, root))
+        {
+            _legendPending = root;
+            var (size, groups) = (root.Size, Groups);
+            _ = Task.Run(() =>
+            {
+                List<(string, long)> sums;
+                try
+                {
+                    sums = [.. root.AllFiles().GroupBy(f => groups.GroupOf(f.Extension)).Select(g => (g.Key, g.Sum(f => f.Size))).Where(x => x.Item2 > 0).OrderByDescending(x => x.Item2)];
+                }
+                catch (InvalidOperationException)
+                {
+                    sums = []; // the tree changed while counting (a scan): drawn without legend this time
+                }
+                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                {
+                    _legend = (root, size, groups, sums);
+                    if (ReferenceEquals(_legendPending, root))
+                        _legendPending = null;
+                    InvalidateVisual();
+                });
+            });
+        }
+        return _legend is { } old && ReferenceEquals(old.Root, root) ? old.Sums : null;
+    }
+
+    /// <summary>One line of swatches + group names + shares below the map; returns the space left for the map.</summary>
+    private Rect DrawLegend(DrawingContext ctx, Rect bounds, List<(string Group, long Size)> legend)
+    {
+        const double H = 20;
+        var total = Math.Max(1, legend.Sum(x => x.Size));
+        var y = bounds.Bottom - H + 4;
+        var x = bounds.X;
+        foreach (var (group, size) in legend)
+        {
+            var label = Text($"{group} {SizeFormat.Percent((double)size / total)}", 11, Muted);
+            if (x + 16 + label.Width > bounds.Right)
+                break;
+            ctx.FillRectangle(new SolidColorBrush(Palette.ForGroup(group)), new Rect(x, y + 2, 11, 11), 2);
+            ctx.DrawText(label, new Point(x + 15, y));
+            x += 15 + label.Width + 14;
+        }
+        return new Rect(bounds.X, bounds.Y, bounds.Width, Math.Max(10, bounds.Height - H));
     }
 
     private Color DominantColor(DirNode d)
@@ -623,7 +721,7 @@ public sealed class TreemapChart : ChartBase
                 foreach (var f in c.Files)
                     if (best == null || f.Size > best.Size)
                         best = f;
-        return best == null ? Palette.Other : Palette.ForGroup(Groups.GroupOf(best.Extension));
+        return best == null ? Palette.Other : Palette.ForExtension(best.Extension, Groups);
     }
 
     private void Label(DrawingContext ctx, string s, Rect r, double size, bool bold)
@@ -781,10 +879,21 @@ public sealed class LineChart : ChartBase
             var label = Text(Format(minV + (maxV - minV) * k / 4), 11, Muted);
             ctx.DrawText(label, new Point(plot.Left - 8 - label.Width, gy - label.Height / 2));
         }
+        // close together: times (with the date where it changes), else dates
+        var span = TimeSpan.FromTicks(maxT - minT);
+        var lastDay = DateTime.MinValue;
         for (var k = 0; k <= 4; k++)
         {
             var t = new DateTime(minT + (maxT - minT) * k / 4);
-            var label = Text(t.ToString("d", CultureInfo.CurrentCulture), 11, Muted);
+            string text;
+            if (span <= TimeSpan.FromDays(3))
+            {
+                text = t.Date != lastDay.Date ? t.ToString("g", CultureInfo.CurrentCulture) : t.ToString("t", CultureInfo.CurrentCulture);
+                lastDay = t;
+            }
+            else
+                text = t.ToString("d", CultureInfo.CurrentCulture);
+            var label = Text(text, 11, Muted);
             var gx = plot.Left + plot.Width * k / 4;
             ctx.DrawText(label, new Point(Math.Clamp(gx - label.Width / 2, 0, w - label.Width), plot.Bottom + 8));
         }

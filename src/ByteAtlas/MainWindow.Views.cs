@@ -108,6 +108,28 @@ public sealed partial class MainWindow
             cc.Content = _overview;
     }
 
+    /// <summary>Shared space measured per folder path (with the folder size then: a change makes it stale).</summary>
+    private readonly Dictionary<string, (Analysis.SharedResult Result, long Size, DateTime At)> _shared = new(StringComparer.OrdinalIgnoreCase);
+
+    private async Task MeasureSharedAsync(DirNode? d, bool quiet)
+    {
+        if (d == null || SelectedScan is not { } s || !CanReadFiles(s))
+            return;
+        SetStatus("Measuring shared space in " + d.FullPath + "…");
+        var progress = new Progress<(long Done, long Total)>(p => SetStatus($"Measuring shared space: {p.Done:N0} of {p.Total:N0} files"));
+        var r = await Task.Run(() => Analysis.SharedSpace.Measure(d, progress), CancellationToken.None);
+        _shared[d.FullPath] = (r, d.Size, DateTime.Now);
+        UpdateOverview(SelectedScan, SelectedFolder);
+        var text = !r.Supported
+            ? "This drive cannot share blocks between files (block cloning needs ReFS or a Dev Drive). Hard links are counted once when Options › Scan › 'Track NTFS hard links and alternate data streams' is on."
+            : r.Shared == 0
+                ? $"No shared blocks among {r.Files:N0} files of 64 KB and more in {d.FullPath}."
+                : $"{_settings.Size(r.Shared)} of {d.FullPath} is shared ({r.Sets:N0} sets of clones / hard links): the folder really uses about {_settings.Size(Math.Max(0, d.Allocated - r.Shared))}.";
+        SetStatus(text);
+        if (!quiet)
+            await Dialogs.MessageBox.ShowAsync(this, text, Dialogs.MessageKind.Info, "Shared space");
+    }
+
     private void UpdateOverview(ScanSession? s, DirNode? d)
     {
         _overview.Children.Clear();
@@ -143,6 +165,11 @@ public sealed partial class MainWindow
             Stat("Costs", (d.Allocated / (double)(1L << 30) * _settings.CostPerGb).ToString("N2", System.Globalization.CultureInfo.CurrentCulture) + " " + _settings.Currency);
         if (d.CompareSize is { } c)
             Stat("Change", c == -1 ? "new" : SizeFormat.FormatChange(d.SizeChange, _settings.Unit, _settings.Decimals), s.ComparedWith);
+        if (_shared.TryGetValue(d.FullPath, out var sh) && sh.Size == d.Size && sh.Result.Shared > 0)
+        {
+            Stat("Shared", _settings.Size(sh.Result.Shared), $"{sh.Result.Sets:N0} sets of clones / hard links share their blocks: each copy still counts its full size above (measured {sh.At:t}).");
+            Stat("Really used", _settings.Size(Math.Max(0, d.Allocated - sh.Result.Shared)), "Allocated minus the shared blocks: about what the folder takes on the drive.");
+        }
         var when = s.IndexFile != null ? $"Index file from {s.ScanDate:g}" : s.State is ScanState.Scanning or ScanState.Paused ? "Scanning…" : $"Scanned {s.Started:g} in {s.Duration.TotalSeconds:N1} s";
         Stat("Last change", SizeFormat.Date(d.Modified, _settings.DateFormat), when + "  ·  " + s.MethodUsed);
     }
@@ -181,7 +208,7 @@ public sealed partial class MainWindow
                 UpdateDetails(s, d);
                 break;
             case 2:
-                RunInBackground(() => _settings.GroupExtensions ? Statistics.ByGroup(d, _settings.FileGroupSet) : Statistics.ByExtension(d, _settings.FileGroupSet, _filter?.Predicate), rows => FillStats(_extGrid, _extChart, rows, "File types in " + d.Name));
+                RunInBackground(() => _settings.GroupExtensions ? Statistics.ByGroup(d, _settings.FileGroupSet) : Statistics.ByExtension(d, _settings.FileGroupSet, _filter?.Predicate), rows => FillStats(_extGrid, _extChart, rows, "File types in " + d.Name, color: TypeColor));
                 break;
             case 3:
                 RunInBackground(() => s.IsGroup && d.Parent == null ? Statistics.ByOwner(s.Members) : Statistics.ByOwner(d, s.Owners), rows => FillStats(_userGrid, _userChart, rows, "Owners in " + d.Name));
@@ -226,9 +253,12 @@ public sealed partial class MainWindow
         }, CancellationToken.None);
     }
 
-    private void FillStats(DataGrid grid, BarChart chart, List<StatRow> rows, string title, bool keepColors = false)
+    /// <summary>The colour of a file type (or file group) row: the same in every chart and list.</summary>
+    private Color TypeColor(StatRow r) => _settings.GroupExtensions ? Palette.ForGroup(r.Key) : Palette.ForExtension(r.Key, _settings.FileGroupSet);
+
+    private void FillStats(DataGrid grid, BarChart chart, List<StatRow> rows, string title, bool keepColors = false, Func<StatRow, Color>? color = null)
     {
-        var items = rows.Select((r, i) => new StatItem(r, _settings, keepColors ? Palette.At(0) : i < 14 ? Palette.At(i) : Palette.Other)).ToList();
+        var items = rows.Select((r, i) => new StatItem(r, _settings, color?.Invoke(r) ?? (keepColors ? Palette.At(0) : i < 14 ? Palette.At(i) : Palette.Other))).ToList();
         grid.ItemsSource = items;
         chart.Title = title;
         chart.Format = v => _settings.Size(v);
@@ -238,7 +268,7 @@ public sealed partial class MainWindow
             Value = r.Size,
             ValueText = $"{_settings.Size(r.Size)}  ·  {SizeFormat.Count(r.Files)} files",
             Tag = r,
-            Color = keepColors ? Palette.At(0) : null,
+            Color = color?.Invoke(r) ?? (keepColors ? Palette.At(0) : null),
         }));
     }
 
@@ -304,7 +334,7 @@ public sealed partial class MainWindow
 
         ComboBox Combo(string[] items, string selected, Action<string> set)
         {
-            var c = new ComboBox { ItemsSource = items, SelectedItem = selected, MinWidth = 110 };
+            var c = new Controls.AccessibleComboBox { ItemsSource = items, SelectedItem = selected, MinWidth = 110 };
             c.SelectionChanged += (_, _) =>
             {
                 if (c.SelectedItem is string v)
@@ -357,7 +387,7 @@ public sealed partial class MainWindow
 
     private void ApplyChartSettings()
     {
-        _pie.ShowLegend = _settings.ChartLegend;
+        _pie.ShowLegend = _treemap.ShowLegend = _settings.ChartLegend;
         _pie.ShowLabels = _settings.ChartLabels;
         _pie.OtherPercent = _settings.ChartOtherPercent;
         _bars.ShowGrid = _settings.ChartGrid;
@@ -367,6 +397,7 @@ public sealed partial class MainWindow
         _treemap.ColorByType = _settings.TreemapColorByType;
         _treemap.MaxDepth = _settings.TreemapDepth;
         _treemap.Groups = _settings.FileGroupSet;
+        ItemIcon.Groups = _settings.FileGroupSet;
         _treemap.InvalidateVisual();
     }
 
@@ -432,14 +463,23 @@ public sealed partial class MainWindow
             "Extensions" => Statistics.ByExtension(d, _settings.FileGroupSet),
             "Users" => Statistics.ByOwner(d, s.Owners),
             _ => Statistics.ByAge(d, _settings.AgeIntervalSet, _settings.AgeBasis),
-        }, rows => SetChart(rows.Select(r => new ChartSlice { Label = r.Key.Length == 0 ? "(none)" : r.Key, Value = r.Size, Tag = r, ValueText = _settings.Size(r.Size) }).ToList()));
+        }, rows => SetChart(rows.Select(r => new ChartSlice
+        {
+            Label = r.Key.Length == 0 ? "(none)" : r.Key,
+            Value = r.Size,
+            Tag = r,
+            ValueText = _settings.Size(r.Size),
+            Color = _chartSource == "Extensions" ? Palette.ForExtension(r.Key, _settings.FileGroupSet) : null,
+        }).ToList()));
     }
 
     private void SetChart(List<ChartSlice> slices)
     {
         _bars.KeepOrder = _chartSource == "Age";
         _pie.SetData(slices);
-        _bars.SetData(slices.Select(x => new ChartSlice { Label = x.Label, Value = x.Value, Tag = x.Tag, ValueText = x.ValueText, Color = x.IsFree ? Palette.Free : null, IsFree = x.IsFree }));
+        // file types keep their own colours in the bars too; other bars get theirs from the bar chart
+        var typed = _chartSource == "Extensions";
+        _bars.SetData(slices.Select(x => new ChartSlice { Label = x.Label, Value = x.Value, Tag = x.Tag, ValueText = x.ValueText, Color = x.IsFree ? Palette.Free : typed ? x.Color : null, IsFree = x.IsFree }));
     }
 
     private string FormatTreeValue(long v) => _settings.TreeMode == TreeValueMode.Files ? SizeFormat.Count(v) + " files" : _settings.Size(v);
@@ -709,7 +749,7 @@ public sealed partial class MainWindow
     private DockPanel AgeTab()
     {
         var bar = new WrapPanel { Orientation = Orientation.Horizontal, ItemSpacing = 6 };
-        var basis = new ComboBox { ItemsSource = new[] { "Last modified", "Last accessed", "Created" }, SelectedIndex = (int)_settings.AgeBasis, MinWidth = 140 };
+        var basis = new Controls.AccessibleComboBox { ItemsSource = new[] { "Last modified", "Last accessed", "Created" }, SelectedIndex = (int)_settings.AgeBasis, MinWidth = 140 };
         basis.SelectionChanged += (_, _) =>
         {
             _settings.AgeBasis = (AgeBasis)Math.Max(0, basis.SelectedIndex);
@@ -741,7 +781,7 @@ public sealed partial class MainWindow
     private DockPanel TopTab()
     {
         var bar = new WrapPanel { Orientation = Orientation.Horizontal, ItemSpacing = 6 };
-        var count = new ComboBox { ItemsSource = new[] { 50, 100, 250, 500, 1000, 5000 }, SelectedItem = _settings.TopCount, MinWidth = 90 };
+        var count = new Controls.AccessibleComboBox { ItemsSource = new[] { 50, 100, 250, 500, 1000, 5000 }, SelectedItem = _settings.TopCount, MinWidth = 90 };
         count.SelectionChanged += (_, _) =>
         {
             if (count.SelectedItem is int n)
@@ -861,7 +901,7 @@ public sealed partial class MainWindow
     }
 
     private DataGrid _growthGrid = null!;
-    private readonly ComboBox _growthSince = new();
+    private readonly Controls.AccessibleComboBox _growthSince = new();
     private readonly CheckBox _growthDeepest = new() { Content = "Only where it happened", IsChecked = true, VerticalAlignment = VerticalAlignment.Center };
     private readonly TextBlock _growthInfo = new() { Classes = { "muted" }, VerticalAlignment = VerticalAlignment.Center };
     private bool _fillingGrowth;

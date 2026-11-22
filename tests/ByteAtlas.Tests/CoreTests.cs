@@ -743,6 +743,14 @@ public class DuplicateTabTests
             Assert.Equal(new DateTime(2020, 1, 2, 3, 4, 5, DateTimeKind.Utc), File.GetLastWriteTimeUtc(b));
             // a clone is its own file, but it shares the blocks: not a copy that could be freed
             Assert.Empty(Duplicates.FindFiles(t.Scan().Root, new DuplicateOptions()));
+            // the shared space is measured: two 300 KB clones share one copy
+            var big1 = t.Write(@"big\one.bin", 300_000, seed: 21);
+            var big2 = t.Write(@"big\two.bin", 300_000, seed: 21);
+            Assert.Equal(1, FileOperations.ReplaceWithClones(big1, [big2]).Done);
+            var big = t.Scan().Root.Dirs.First(d => d.Name == "big");
+            var m = SharedSpace.Measure(big);
+            Assert.Equal(1, m.Sets);
+            Assert.True(m.Shared >= 300_000, $"shared {m.Shared}");
         }
         else
             Assert.Contains("clone", Assert.Single(r.Errors));

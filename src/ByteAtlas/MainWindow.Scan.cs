@@ -187,12 +187,30 @@ public sealed partial class MainWindow
         _drives.Refresh();
         SetStatus(ScanSummary(s));
         LogScan(s);
+        if (_measureAfterScan is { } measure && s.State == ScanState.Done && FolderAt(s.Root, measure) is { } folder)
+        {
+            _measureAfterScan = null;
+            _ = MeasureSharedAsync(folder, quiet: true);
+        }
         SaveCache(s);
         UpdateWatchers();
         if (_settings.ShowErrorsAfterScan && !s.Errors.IsEmpty)
             _ = ShowErrorsAsync();
         if (_settings.NotifyWhenDone && !IsActive && s.State == ScanState.Done)
             Activate();
+    }
+
+    private string? _measureAfterScan;
+
+    /// <summary>The folder with this full path in the tree of <paramref name="root"/>, or null.</summary>
+    private static DirNode? FolderAt(DirNode root, string path)
+    {
+        var top = root.FullPath.TrimEnd('\\', '/');
+        if (path.TrimEnd('\\', '/').Equals(top, StringComparison.OrdinalIgnoreCase))
+            return root;
+        if (!path.StartsWith(top, StringComparison.OrdinalIgnoreCase))
+            return null;
+        return Analysis.Growth.Find(root, path[top.Length..].Trim('\\', '/').Replace('\\', '/'));
     }
 
     private void LogScan(ScanSession s)

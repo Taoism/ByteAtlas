@@ -111,7 +111,7 @@ public sealed class MoveCopyDialog : DialogWindow
     private readonly RadioButton _move = new() { Content = "Move", GroupName = "op" };
     private readonly RadioButton _copy = new() { Content = "Copy", GroupName = "op", IsChecked = true };
     private readonly CheckBox _keep = new() { Content = "Keep the folder structure", IsChecked = true };
-    private readonly ComboBox _collision = new() { ItemsSource = new[] { "Skip existing files", "Overwrite existing files", "Rename (add a number)" }, SelectedIndex = 2 };
+    private readonly Controls.AccessibleComboBox _collision = new() { ItemsSource = new[] { "Skip existing files", "Overwrite existing files", "Rename (add a number)" }, SelectedIndex = 2 };
 
     public MoveCopyDialog(int count, string size) : base("Move / copy", 520)
     {
@@ -149,7 +149,7 @@ public sealed class ScheduleDialog : DialogWindow
 {
     private readonly string _path;
     private readonly TextBox _name;
-    private readonly ComboBox _freq = new() { ItemsSource = new[] { "Daily", "Weekly", "Monthly", "At log on" }, SelectedIndex = 1 };
+    private readonly Controls.AccessibleComboBox _freq = new() { ItemsSource = new[] { "Daily", "Weekly", "Monthly", "At log on" }, SelectedIndex = 1 };
     private readonly TextBox _time = new() { Text = "03:00", Width = 80 };
     private readonly TextBox _export = new();
     private readonly CheckBox _history = new() { Content = "Add the result to the history", IsChecked = true };

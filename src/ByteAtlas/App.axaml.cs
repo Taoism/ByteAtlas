@@ -44,11 +44,13 @@ public sealed class App : Application
         {
             Dispatcher.UIThread.UnhandledException += (_, e) => Storage.AppLog.Error("Error in the window", e.Exception);
             var settings = AppSettings.Load();
+            Controls.Palette.Load(settings.TypeColors);
             ApplyTheme(Environment.GetEnvironmentVariable("BYTEATLAS_THEME") is { Length: > 0 } forced ? forced : settings.Theme);
             var args = desktop.Args ?? [];
             // ByteAtlas --notify TITLE MESSAGE [PATH]: a note from the command line tool (scheduled scans)
             desktop.MainWindow = args.Length >= 3 && args[0] == "--notify"
-                ? new Dialogs.NotifyWindow(args[1], args[2], args.Length > 3 ? args[3] : null)
+                ? new Dialogs.NotifyWindow(args[1], args[2], args.Length > 3 ? args[3] : null,
+                    settings.WindowX is { } x && settings.WindowY is { } y ? new PixelPoint(x, y) : null)
                 : new MainWindow(settings, args);
         }
         base.OnFrameworkInitializationCompleted();

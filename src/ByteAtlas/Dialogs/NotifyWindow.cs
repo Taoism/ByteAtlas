@@ -13,8 +13,12 @@ namespace ByteAtlas.Dialogs;
 /// </summary>
 public sealed class NotifyWindow : Window
 {
-    public NotifyWindow(string title, string message, string? path)
+    private readonly PixelPoint? _near;
+
+    /// <param name="near">Where the ByteAtlas window was last: the note goes on that screen.</param>
+    public NotifyWindow(string title, string message, string? path, PixelPoint? near = null)
     {
+        _near = near;
         Title = "ByteAtlas: " + title;
         Icon = MainWindow.AppIcon;
         Width = 400;
@@ -64,8 +68,9 @@ public sealed class NotifyWindow : Window
 
     private void PlaceInCorner()
     {
-        // bottom right of the main screen, above the task bar
-        if (Screens.Primary is not { } screen)
+        // bottom right of the screen ByteAtlas was last used on (else the main one), above the task bar
+        var screen = (_near is { } p ? Screens.ScreenFromPoint(p) : null) ?? Screens.Primary;
+        if (screen == null)
             return;
         var area = screen.WorkingArea;
         var scale = screen.Scaling;

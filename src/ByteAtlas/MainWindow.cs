@@ -348,13 +348,13 @@ public sealed partial class MainWindow : Window
         scan.Classes.Add("accent");
         scan.Classes.Remove("tool");
 
-        var unit = new ComboBox { ItemsSource = new[] { "Auto", "Bytes", "KB", "MB", "GB", "TB" }, SelectedIndex = (int)_settings.Unit, MinWidth = 84 };
+        var unit = new Controls.AccessibleComboBox { ItemsSource = new[] { "Auto", "Bytes", "KB", "MB", "GB", "TB" }, SelectedIndex = (int)_settings.Unit, MinWidth = 84 };
         unit.SelectionChanged += (_, _) =>
         {
             _settings.Unit = (SizeUnit)Math.Max(0, unit.SelectedIndex);
             RefreshAll();
         };
-        var mode = new ComboBox { ItemsSource = new[] { "Size", "Allocated space", "Number of files", "Percent" }, SelectedIndex = (int)_settings.TreeMode, MinWidth = 130 };
+        var mode = new Controls.AccessibleComboBox { ItemsSource = new[] { "Size", "Allocated space", "Number of files", "Percent" }, SelectedIndex = (int)_settings.TreeMode, MinWidth = 130 };
         mode.SelectionChanged += (_, _) =>
         {
             _settings.TreeMode = (TreeValueMode)Math.Max(0, mode.SelectedIndex);
@@ -660,6 +660,7 @@ public sealed partial class MainWindow : Window
             Item("Files with long _paths", () => OpenSearch(null, Search.SearchTemplate.LongPaths)),
             new Separator(),
             Item("_Bulk rename…", () => OpenRenamer(SelectedPaths())),
+            WinOrLinux(Item("_Measure shared space (clones, hard links)", () => MeasureSharedAsync(SelectedFolder, quiet: false))),
             WinOnly(Sub("_Compress selection",
                 Item("_NTFS (LZNT1)", () => CompressSelectedAsync(Native.CompressionFormat.Ntfs)),
                 Item("XPRESS _4K", () => CompressSelectedAsync(Native.CompressionFormat.Xpress4K)),
