@@ -116,7 +116,7 @@ clean-room, open source. Version 0.1.0 (2026-11-21).
   Help › Open log folder.
 
 ## Open
-- [ ] Release 0.5.0; submit the winget manifest (packaging\winget\0.5.0) to microsoft/winget-pkgs (ask first).
+- [ ] Submit the winget manifest (packaging\winget\0.5.0) to microsoft/winget-pkgs (ask first).
 - [ ] Later: similar images / audio; memory + speed pass for 10 M+ file scans.
 - [ ] Chart colours per file type: every extension / file group gets its own colour in the treemap, pie and bar
       charts, with a legend, editable colours (Options), the same colour for a type everywhere in the app.
