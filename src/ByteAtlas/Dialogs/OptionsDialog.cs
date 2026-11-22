@@ -240,22 +240,28 @@ public sealed class OptionsDialog : DialogWindow
         var o = _s.Scan;
         return PageOf(
             H("Method"),
-            Choice("Read drives with:", ["Automatic (master file table when possible)", "Folder walk only", "Master file table only"], (int)o.Method, i => o.Method = (ScanMethod)i),
-            Label("The NTFS master file table is read directly on local NTFS drives when ByteAtlas runs as administrator: a whole drive in seconds.", true),
+            WindowsOnly(Choice("Read drives with:", ["Automatic (master file table when possible)", "Folder walk only", "Master file table only"], (int)o.Method, i => o.Method = (ScanMethod)i)),
+            WindowsOnly(Label("The NTFS master file table is read directly on local NTFS drives when ByteAtlas runs as administrator: a whole drive in seconds.", true)),
             Number("Threads for the folder walk (0 = automatic):", o.Threads, 0, 32, v => o.Threads = (int)v),
             Choice("Thread priority:", ["Lowest", "Below normal", "Normal", "Above normal", "Highest"], (int)o.Priority, i => o.Priority = (ThreadPriority)i),
             H("Accuracy"),
             Check("Follow mount points and directory links", o.FollowMountPoints, v => o.FollowMountPoints = v),
-            Check("Track NTFS hard links and alternate data streams (count shared files once)", o.TrackHardlinksAndStreams, v => o.TrackHardlinksAndStreams = v, "Slower on the folder walk; free with the master file table"),
+            WindowsOnly(Check("Track NTFS hard links and alternate data streams (count shared files once)", o.TrackHardlinksAndStreams, v => o.TrackHardlinksAndStreams = v, "Slower on the folder walk; free with the master file table")),
             Check("Folder dates from the files inside only", o.FolderDateFromFilesOnly, v => o.FolderDateFromFilesOnly = v),
-            Check("Count Windows compact compression (XPRESS / LZX) on the folder walk (slower)", o.DetectCompactCompression, v => o.DetectCompactCompression = v,
-                "Windows hides compact compression from the normal file attributes, so the folder walk has to ask every file. The master file table always knows."),
+            WindowsOnly(Check("Count Windows compact compression (XPRESS / LZX) on the folder walk (slower)", o.DetectCompactCompression, v => o.DetectCompactCompression = v,
+                "Windows hides compact compression from the normal file attributes, so the folder walk has to ask every file. The master file table always knows.")),
             H("Cache"),
             Check("Keep the last scan of each path: show it at once on the next start, then refresh what changed", _s.CacheScans, v => _s.CacheScans = v,
                 "NTFS drives read from the master file table refresh through the change journal (about a second)."),
             H("Statistics"),
             Check("Statistics on file owners (slower on the folder walk)", o.CollectOwners, v => o.CollectOwners = v),
             Label("File type and age statistics are always available; they are computed for the selected folder when you open their tab.", true));
+    }
+
+    private static T WindowsOnly<T>(T c) where T : Control
+    {
+        c.IsVisible = OperatingSystem.IsWindows();
+        return c;
     }
 
     private StackPanel FilterPage()

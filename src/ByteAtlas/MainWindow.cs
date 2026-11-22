@@ -394,6 +394,13 @@ public sealed partial class MainWindow : Window
         return mi;
     }
 
+    /// <summary>Menu entries for Windows features (hidden on Linux / macOS).</summary>
+    private static MenuItem WinOnly(MenuItem m)
+    {
+        m.IsVisible = OperatingSystem.IsWindows();
+        return m;
+    }
+
     private static MenuItem Check(string header, bool on, Action<bool> set)
     {
         var mi = new MenuItem { Header = header, ToggleType = MenuItemToggleType.CheckBox, IsChecked = on };
@@ -442,9 +449,9 @@ public sealed partial class MainWindow : Window
             Sub("_Compare",
                 Item("With _saved scan (index file)…", CompareWithIndexAsync),
                 Item("With another _path…", CompareWithPathAsync),
-                Item("With a _snapshot…", CompareWithSnapshotAsync),
+                WinOnly(Item("With a _snapshot…", CompareWithSnapshotAsync)),
                 Item("_Clear comparison", ClearComparison)),
-            Item("Create s_napshot of this drive", CreateSnapshotAsync),
+            WinOnly(Item("Create s_napshot of this drive", CreateSnapshotAsync)),
             new Separator(),
             Sub("_Export",
                 Item("_Excel file…", () => ExportTreeAsync(Export.ExportFormat.Excel)),
@@ -455,7 +462,7 @@ public sealed partial class MainWindow : Window
                 new Separator(),
                 Item("Copy branch to clip_board", CopyBranchAsync),
                 Item("Copy _list of files", CopyFileListAsync),
-                Item("Send by _email…", EmailReportAsync),
+                WinOnly(Item("Send by _email…", EmailReportAsync)),
                 Item("List of _all files (CSV)…", ExportAllFilesAsync),
                 new Separator(),
                 Item("Customi_ze export…", () => OpenOptions("Export"))),
@@ -489,11 +496,11 @@ public sealed partial class MainWindow : Window
                 }
             }),
             new Separator(),
-            Item("Sc_hedule this scan…", ScheduleScanAsync),
-            Item("_Manage scheduled scans…", ManageSchedulesAsync),
+            WinOnly(Item("Sc_hedule this scan…", ScheduleScanAsync)),
+            WinOnly(Item("_Manage scheduled scans…", ManageSchedulesAsync)),
             new Separator(),
             Item("Show all _errors…", ShowErrorsAsync),
-            Item("Start as a_dministrator", RestartAsAdmin));
+            WinOnly(Item("Start as a_dministrator", RestartAsAdmin)));
 
         var expandItems = new List<Control>();
         for (var lvl = 1; lvl <= 6; lvl++)
@@ -591,34 +598,34 @@ public sealed partial class MainWindow : Window
             Item("Files with long _paths", () => OpenSearch(null, Search.SearchTemplate.LongPaths)),
             new Separator(),
             Item("_Bulk rename…", () => OpenRenamer(SelectedPaths())),
-            Sub("_Compress selection",
+            WinOnly(Sub("_Compress selection",
                 Item("_NTFS (LZNT1)", () => CompressSelectedAsync(Native.CompressionFormat.Ntfs)),
                 Item("XPRESS _4K", () => CompressSelectedAsync(Native.CompressionFormat.Xpress4K)),
                 Item("XPRESS _8K", () => CompressSelectedAsync(Native.CompressionFormat.Xpress8K)),
                 Item("XPRESS _16K", () => CompressSelectedAsync(Native.CompressionFormat.Xpress16K)),
                 Item("_LZX", () => CompressSelectedAsync(Native.CompressionFormat.Lzx)),
                 new Separator(),
-                Item("_Uncompress", () => CompressSelectedAsync(Native.CompressionFormat.None))),
-            Item("_Permissions of selection…", () =>
+                Item("_Uncompress", () => CompressSelectedAsync(Native.CompressionFormat.None)))),
+            WinOnly(Item("_Permissions of selection…", () =>
             {
                 if (SelectedPaths().FirstOrDefault() is { } p && OperatingSystem.IsWindows())
                     _ = new Dialogs.PermissionsDialog(p).ShowDialog(this);
-            }),
-            Item("Search by _permissions…", () => OpenSearch(null, Search.SearchTemplate.Permissions)),
+            })),
+            WinOnly(Item("Search by _permissions…", () => OpenSearch(null, Search.SearchTemplate.Permissions))),
             new Separator(),
-            Item("Empty _recycle bin", () =>
+            WinOnly(Item("Empty _recycle bin", () =>
             {
                 Native.Platform.EmptyRecycleBin(TryGetPlatformHandle()?.Handle ?? IntPtr.Zero);
                 _drives.Refresh();
-            }),
-            Item("Remove obsolete so_ftware", () => Shell.RunAndForget("control.exe", "appwiz.cpl")),
-            Item("Configure system restore", () => Shell.RunAndForget("SystemPropertiesProtection.exe")),
-            Item("_Map network drive…", () =>
+            })),
+            WinOnly(Item("Remove obsolete so_ftware", () => Shell.RunAndForget("control.exe", "appwiz.cpl"))),
+            WinOnly(Item("Configure system restore", () => Shell.RunAndForget("SystemPropertiesProtection.exe"))),
+            WinOnly(Item("_Map network drive…", () =>
             {
                 Native.Platform.MapNetworkDrive(TryGetPlatformHandle()?.Handle ?? IntPtr.Zero);
                 _drives.Refresh();
-            }),
-            Item("Open command _prompt here", () =>
+            })),
+            Item(OperatingSystem.IsWindows() ? "Open command _prompt here" : "Open _terminal here", () =>
             {
                 if (SelectedFolder is { } d)
                     Shell.CommandPrompt(d.FullPath);

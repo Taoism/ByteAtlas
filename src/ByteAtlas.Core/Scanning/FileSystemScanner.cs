@@ -13,6 +13,11 @@ public sealed class FileSystemScanner
     private readonly ConcurrentStack<DirNode> _work = new();
     private readonly ConcurrentDictionary<DirNode, string> _paths = new();
     private readonly ConcurrentDictionary<(uint, ulong), byte> _seenLinks = new();
+    private readonly ConcurrentDictionary<(ulong, ulong), byte> _seenInodes = new();
+    private readonly ConcurrentDictionary<uint, int> _ownerIds = new();
+
+    /// <summary>Linux: device of the scanned folder (other file systems below it are mount points).</summary>
+    private ulong? _rootDevice;
     private readonly ConcurrentDictionary<string, byte> _visitedTargets = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<DirNode, int> _waiting = new();
     private long _outstanding;
@@ -37,6 +42,8 @@ public sealed class FileSystemScanner
         if (string.IsNullOrEmpty(_s.MethodUsed))
             _s.MethodUsed = $"File system ({threads} threads)";
 
+        if (OperatingSystem.IsLinux() && UnixStat.TryGet(path, out var root))
+            _rootDevice = root.Device;
         _paths[node] = path;
         _outstanding = 1;
         _work.Push(node);
@@ -126,6 +133,7 @@ public sealed class FileSystemScanner
         var subdirs = new List<(DirNode Node, string Path)>();
         long ownSize = 0, ownAlloc = 0;
         var windows = OperatingSystem.IsWindows();
+        var linux = OperatingSystem.IsLinux();
         var enumPath = windows ? Win32.LongPath(path) : path;
 
         using (var en = new EntryEnumerator(enumPath, EnumOptions))
@@ -142,6 +150,14 @@ public sealed class FileSystemScanner
                     d.SetOwnDates(e.Created, e.Modified, e.Accessed);
                     if (_o.CollectOwners && windows)
                         d.OwnerId = OwnerId(full);
+                    if (linux && UnixStat.TryGet(full, out var di))
+                    {
+                        if (_o.CollectOwners)
+                            d.OwnerId = UnixOwner(di.Uid);
+                        // another file system mounted here (/proc, /mnt/c, a USB disk …): like a mount point on Windows
+                        if (di.Device != _rootDevice && _rootDevice != null)
+                            d.Attributes |= FileAttributes.ReparsePoint;
+                    }
                     subdirs.Add((d, full));
                     continue;
                 }
@@ -166,6 +182,8 @@ public sealed class FileSystemScanner
                     alloc = TrackLinksAndStreams(full, f, alloc);
                 if (_o.CollectOwners && windows)
                     f.OwnerId = OwnerId(full);
+                if (linux && UnixStat.TryGet(full, out var fi))
+                    alloc = UnixFile(f, fi);
                 f.SetSizes(e.Length, alloc);
                 ownSize += e.Length;
                 ownAlloc += alloc;
@@ -251,6 +269,21 @@ public sealed class FileSystemScanner
             return -1;
         var owner = Win32.GetOwner(path);
         return owner == null ? -1 : _s.Owners.GetId(owner);
+    }
+
+    [System.Runtime.Versioning.SupportedOSPlatform("linux")]
+    private int UnixOwner(uint uid) => _ownerIds.GetOrAdd(uid, u => _s.Owners.GetId(UnixStat.UserName(u)));
+
+    /// <summary>Linux: owner, blocks really allocated, hard links counted once. Returns the allocated size.</summary>
+    [System.Runtime.Versioning.SupportedOSPlatform("linux")]
+    private long UnixFile(FileItem f, UnixStat.Info i)
+    {
+        if (_o.CollectOwners)
+            f.OwnerId = UnixOwner(i.Uid);
+        f.LinkCount = (int)Math.Max(1, i.Links);
+        if (i.Links > 1 && !_seenInodes.TryAdd((i.Device, i.Inode), 0)) // free on Linux: always
+            return 0; // counted at its first link already
+        return i.Allocated;
     }
 
     private long TrackLinksAndStreams(string full, FileItem f, long alloc)

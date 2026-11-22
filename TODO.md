@@ -62,11 +62,21 @@ clean-room, open source. Version 0.1.0 (2026-11-21).
   icon-only buttons.
 - Change-journal refresh, scan cache, progress panel, accessibility (see git log).
 
+## Done (0.4.0, 2026-11-21)
+
+- Windows installer (Inno Setup: per user or all users, desktop icon, byteatlas-cli on PATH, Explorer menu; closes a
+  running copy on uninstall / silent upgrade), tested install → run → uninstall in Windows Sandbox.
+- Linux: .deb, .rpm and portable tarball, tested in clean Debian 12, Ubuntu 24.04 and Fedora 41 containers.
+  Folder walk reads owner, allocated blocks, hard links (statx) and stays on one file system; drive list shows real
+  mounts only; Windows-only menus and options hidden.
+- PDF fonts: fixed broken Arial fallback paths, Fedora / Noto locations, any installed font as a last resort.
+
 ## Open
 
 - [ ] More remote sources: SharePoint / OneDrive through Microsoft Graph (sign-in), Outlook mailboxes, phones via MTP.
 - [ ] Report designer + print preview inside the app; SMTP mail; portable mode; cleanup recommendations;
-      treemap colour by age / growth; SMART disk health; Debian / Ubuntu .deb.
+      treemap colour by age / growth; SMART disk health.
+- [ ] Linux arm64 and macOS packages; Linux: SMART, trash (freedesktop) for deletes, cron for scheduled scans.
 - [ ] Print preview inside the app (currently: PDF opened in the viewer).
 - [ ] Explorer menu and drag-out need a manual check (UI automation cannot drive them).
 - [ ] Release: publish GUI + CLI side by side (GUI looks for byteatlas-cli next to itself), installer, portable zip,

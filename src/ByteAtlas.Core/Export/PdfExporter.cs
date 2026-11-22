@@ -17,21 +17,32 @@ public static class PdfExporter
         GlobalFontSettings.FontResolver ??= new SystemFontResolver();
     }
 
-    /// <summary>Uses Segoe UI on Windows, DejaVu / Liberation / Helvetica elsewhere (any family name maps to these).</summary>
+    /// <summary>
+    /// Uses Segoe UI on Windows, DejaVu / Liberation / Noto / Helvetica elsewhere (any family name maps to these);
+    /// as a last resort any TrueType font in the font folders.
+    /// </summary>
     private sealed class SystemFontResolver : IFontResolver
     {
         private static readonly string[] Regular =
         [
-            @"C:\Windows\Fonts\segoeui.ttf", @"C:\Windows\Fontsrial.ttf",
+            @"C:\Windows\Fonts\segoeui.ttf", @"C:\Windows\Fonts\arial.ttf",
             "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/TTF/DejaVuSans.ttf",
-            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf", "/System/Library/Fonts/Supplemental/Arial.ttf",
+            "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf", "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf", "/usr/share/fonts/liberation-sans-fonts/LiberationSans-Regular.ttf",
+            "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf", "/usr/share/fonts/google-noto/NotoSans-Regular.ttf",
+            "/System/Library/Fonts/Supplemental/Arial.ttf",
         ];
 
         private static readonly string[] Bold =
         [
-            @"C:\Windows\Fonts\segoeuib.ttf", @"C:\Windows\Fontsrialbd.ttf",
+            @"C:\Windows\Fonts\segoeuib.ttf", @"C:\Windows\Fonts\arialbd.ttf",
             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
-            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf", "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+            "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans-Bold.ttf", "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf", "/usr/share/fonts/liberation-sans-fonts/LiberationSans-Bold.ttf",
+            "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf", "/usr/share/fonts/google-noto/NotoSans-Bold.ttf",
+            "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
         ];
 
         public FontResolverInfo ResolveTypeface(string familyName, bool isBold, bool isItalic) =>
@@ -39,13 +50,26 @@ public static class PdfExporter
 
         public byte[]? GetFont(string faceName)
         {
-            var list = faceName == "ba-bold" ? Bold : Regular;
-            foreach (var f in list)
-                if (File.Exists(f))
-                    return File.ReadAllBytes(f);
-            foreach (var f in Regular)
-                if (File.Exists(f))
-                    return File.ReadAllBytes(f);
+            var file = (faceName == "ba-bold" ? Bold : Regular).FirstOrDefault(File.Exists)
+                ?? Regular.FirstOrDefault(File.Exists)
+                ?? AnyFont()
+                ?? throw new IOException("No TrueType font found for the PDF report. Install a font package (fonts-dejavu-core, dejavu-sans-fonts, …).");
+            return File.ReadAllBytes(file);
+        }
+
+        private static string? AnyFont()
+        {
+            string[] folders = ["/usr/share/fonts", "/usr/local/share/fonts", Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local/share/fonts")];
+            var options = new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true, MatchCasing = MatchCasing.CaseInsensitive };
+            foreach (var dir in folders.Where(Directory.Exists))
+            {
+                // prefer a plain sans-serif regular face
+                var all = Directory.EnumerateFiles(dir, "*.ttf", options).ToList();
+                var pick = all.FirstOrDefault(f => Path.GetFileName(f).Contains("Sans-Regular", StringComparison.OrdinalIgnoreCase) || Path.GetFileName(f).Equals("DejaVuSans.ttf", StringComparison.OrdinalIgnoreCase))
+                    ?? all.FirstOrDefault();
+                if (pick != null)
+                    return pick;
+            }
             return null;
         }
     }

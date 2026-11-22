@@ -5,7 +5,23 @@
 **Where did my disk space go?** ByteAtlas maps it: a size-sorted folder tree, treemap and charts, file types,
 owners and ages, the largest files, duplicates — plus the tools to clean up, report and track growth over time.
 
-Open source (MIT), dark by default, written in C# (.NET 10 + Avalonia).
+Open source (MIT), dark by default, written in C# (.NET 10 + Avalonia). Windows and Linux.
+
+## Install
+
+From the [latest release](https://github.com/Taoism/ByteAtlas/releases/latest) (all packages are self-contained,
+no .NET needed; each has the app and the `byteatlas-cli` command):
+
+| System | Package |
+|---|---|
+| Windows 10 / 11 | `ByteAtlas-<v>-setup-win-x64.exe` (per user, no admin prompt; options: desktop icon, `byteatlas-cli` on PATH, Explorer menu) or the portable `…-win-x64.zip` |
+| Debian / Ubuntu / Mint | `sudo apt install ./byteatlas_<v>_amd64.deb` |
+| Fedora / RHEL | `sudo dnf install ./byteatlas-<v>-1.x86_64.rpm` |
+| Other Linux | `ByteAtlas-<v>-linux-x64.tar.gz`: unpack, run `./ByteAtlas` |
+
+On Linux the folder walk reads owners, real allocated sizes and hard links (counted once) and stays on one file
+system unless *Follow mount points* is on. Windows-only features (master file table, NTFS compression and
+permissions, snapshots, Explorer menu) are hidden there.
 
 ## Features
 
@@ -94,6 +110,10 @@ dotnet run --project src/ByteAtlas -- C:\
 ```
 
 Reading the master file table needs administrator rights; without them ByteAtlas walks folders instead.
+
+Release packages: `pwsh packaging/build-release.ps1` (Inno Setup 6 + WSL with Docker) builds the installer, zips, .deb, .rpm and
+tarball into `release/`; `packaging/test-linux.sh <version> .` installs the Linux ones in clean Debian, Ubuntu and
+Fedora containers and checks the CLI, exports and the GUI (Xvfb).
 
 Remote-source tests use local servers in Docker (WSL): `tests/remote/setup.sh` starts SSH, S3 (rclone), Azurite and
 WebDAV with a known tree, `tests/remote/many.sh` adds 2,100 objects and SSH keys; then

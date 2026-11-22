@@ -54,7 +54,9 @@ public sealed class DriveListPanel : UserControl
         {
             try
             {
-                if (d.IsReady && d.TotalSize > 0)
+                // a path mounted twice (stacked mounts) is listed once
+                if (d.IsReady && d.TotalSize > 0 && (OperatingSystem.IsWindows() || IsUserMount(d))
+                    && !list.Exists(x => x.RootDirectory.FullName == d.RootDirectory.FullName))
                     list.Add(d);
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException)
@@ -63,6 +65,31 @@ public sealed class DriveListPanel : UserControl
             }
         }
         return list;
+    }
+
+    private static readonly string[] PseudoFileSystems =
+    [
+        "tmpfs", "devtmpfs", "proc", "sysfs", "cgroup", "cgroup2", "overlay", "squashfs", "debugfs", "tracefs",
+        "securityfs", "pstore", "bpf", "configfs", "fusectl", "mqueue", "hugetlbfs", "autofs", "binfmt_misc",
+        "efivarfs", "ramfs", "nsfs", "rpc_pipefs", "devpts", "fuse.gvfsd-fuse", "fuse.portal", "fuse.snapfuse",
+    ];
+
+    /// <summary>Linux / macOS: real disks at places people use (/, /home, /mnt/…, /media/…), no system or WSL mounts.</summary>
+    private static bool IsUserMount(DriveInfo d)
+    {
+        var p = d.RootDirectory.FullName.TrimEnd('/');
+        if (p.Length == 0)
+            return true; // "/"
+        if (PseudoFileSystems.Contains(d.DriveFormat, StringComparer.OrdinalIgnoreCase))
+            return false;
+        if (p is "/mnt/wsl" or "/mnt/wslg" || p.StartsWith("/mnt/wslg/", StringComparison.Ordinal))
+            return false;
+        string[] places = ["/home", "/mnt/", "/media/", "/run/media/", "/srv", "/data", "/Volumes/"];
+        if (places.Any(x => p == x.TrimEnd('/') || p.StartsWith(x.EndsWith('/') ? x : x + "/", StringComparison.Ordinal)))
+            return true;
+        // other top-level mounts (/storage, /backup …), not /usr, /var, /boot, /proc …
+        string[] system = ["/usr", "/var", "/boot", "/proc", "/sys", "/dev", "/run", "/snap", "/etc", "/opt", "/init", "/lib"];
+        return p.Count(c => c == '/') == 1 && !system.Any(x => p == x || p.StartsWith(x + "/", StringComparison.Ordinal));
     }
 
     public void Refresh()
@@ -75,7 +102,10 @@ public sealed class DriveListPanel : UserControl
             string label;
             try
             {
-                label = _settings.ShowDriveNames && d.VolumeLabel.Length > 0 ? $"{d.RootDirectory.FullName.TrimEnd('\\')}  {d.VolumeLabel}" : d.RootDirectory.FullName;
+                // on Linux the "label" is the mount path again
+                label = _settings.ShowDriveNames && d.VolumeLabel.Length > 0 && d.VolumeLabel != d.RootDirectory.FullName
+                    ? $"{d.RootDirectory.FullName.TrimEnd('\\')}  {d.VolumeLabel}"
+                    : d.RootDirectory.FullName;
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException)
             {

@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=ByteAtlas
+GenericName=Disk Space Analyzer
+Comment=Where did my disk space go? Folder sizes, treemap, duplicates, reports
+Exec=byteatlas %f
+Icon=byteatlas
+Terminal=false
+Categories=System;Utility;Filesystem;
+MimeType=inode/directory;
+Keywords=disk;space;usage;size;treemap;duplicates;storage;
+StartupWMClass=ByteAtlas
