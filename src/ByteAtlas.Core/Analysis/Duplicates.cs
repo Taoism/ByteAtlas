@@ -31,8 +31,21 @@ public sealed class DuplicateOptions
     /// <summary>False for scans whose files cannot be read (remote sources, index files): names and sizes only.</summary>
     public bool CanRead { get; set; } = true;
 
+    /// <summary>Checksums read before (path + size + modified time); null: read every file.</summary>
+    public IChecksumCache? Checksums { get; set; }
+
+    /// <summary>Folder names or paths (wildcards) whose files are left out completely (node_modules, $Recycle.Bin, …).</summary>
+    public IReadOnlyList<string> Ignore { get; set; } = [];
+
     public bool ReadsContents => CanRead && Match != DuplicateMatch.NameAndSize;
     public bool SameName => Match != DuplicateMatch.Contents || !CanRead;
+}
+
+/// <summary>Checksums kept between searches; kinds: "quick" (start + end) and the hash name.</summary>
+public interface IChecksumCache
+{
+    string? Get(FileItem f, string kind);
+    void Put(FileItem f, string kind, string hash);
 }
 
 /// <summary>Files with the same contents.</summary>
@@ -76,7 +89,7 @@ public static class Duplicates
     public static List<DuplicateFileGroup> FindFiles(DirNode root, DuplicateOptions o, IProgress<DuplicateProgress>? progress = null, CancellationToken ct = default)
     {
         var hashes = new ConcurrentDictionary<FileItem, string>();
-        return FindFiles(root.AllFiles(), o, hashes, progress, ct);
+        return FindFiles(Folders(root, o).SelectMany(d => d.Files), o, hashes, progress, ct);
     }
 
     private static List<DuplicateFileGroup> FindFiles(IEnumerable<FileItem> files, DuplicateOptions o, ConcurrentDictionary<FileItem, string> hashes, IProgress<DuplicateProgress>? progress, CancellationToken ct)
@@ -102,7 +115,7 @@ public static class Duplicates
         var found = new ConcurrentBag<DuplicateFileGroup>();
         Parallel.ForEach(bySize, new ParallelOptions { CancellationToken = ct, MaxDegreeOfParallelism = 4 }, g =>
         {
-            foreach (var set in SameContents(g, o.Hash, hashes, ct))
+            foreach (var set in SameContents(g, o, hashes, ct))
                 found.Add(set);
             var d = Interlocked.Add(ref done, g.Count);
             progress?.Report(new DuplicateProgress { Phase = "Comparing contents", Done = d, Total = total });
@@ -112,13 +125,13 @@ public static class Duplicates
     }
 
     /// <summary>Splits same-size files by a quick checksum (start + end), then by a full one.</summary>
-    private static IEnumerable<DuplicateFileGroup> SameContents(List<FileItem> sameSize, HashKind kind, ConcurrentDictionary<FileItem, string> hashes, CancellationToken ct)
+    private static IEnumerable<DuplicateFileGroup> SameContents(List<FileItem> sameSize, DuplicateOptions o, ConcurrentDictionary<FileItem, string> hashes, CancellationToken ct)
     {
         var quick = new Dictionary<string, List<FileItem>>();
         foreach (var f in sameSize)
         {
             ct.ThrowIfCancellationRequested();
-            if (QuickHash(f.FullPath) is not { } q)
+            if (QuickHash(f, o) is not { } q)
                 continue;
             if (!quick.TryGetValue(q, out var list))
                 quick[q] = list = [];
@@ -129,7 +142,7 @@ public static class Duplicates
             var full = new Dictionary<string, List<FileItem>>();
             foreach (var f in q)
             {
-                var h = ContentHash(f, kind, hashes, ct);
+                var h = ContentHash(f, o, hashes, ct);
                 if (h == null)
                     continue;
                 if (!full.TryGetValue(h, out var list))
@@ -142,14 +155,32 @@ public static class Duplicates
         }
     }
 
-    private static string? ContentHash(FileItem f, HashKind kind, ConcurrentDictionary<FileItem, string> hashes, CancellationToken ct)
+    private static string? ContentHash(FileItem f, DuplicateOptions o, ConcurrentDictionary<FileItem, string> hashes, CancellationToken ct)
     {
         if (hashes.TryGetValue(f, out var h))
             return h;
-        h = SearchEngine.FullHash(f.FullPath, kind == HashKind.None ? HashKind.Md5 : kind, ct);
+        var kind = o.Hash == HashKind.None ? HashKind.Md5 : o.Hash;
+        var name = kind.ToString();
+        h = o.Checksums?.Get(f, name);
+        if (h == null)
+        {
+            h = SearchEngine.FullHash(f.FullPath, kind, ct);
+            if (h != null)
+                o.Checksums?.Put(f, name, h);
+        }
         if (h != null)
             hashes[f] = h;
         return h;
+    }
+
+    private static string? QuickHash(FileItem f, DuplicateOptions o)
+    {
+        if (o.Checksums?.Get(f, "quick") is { } q)
+            return q;
+        q = QuickHash(f.FullPath);
+        if (q != null)
+            o.Checksums?.Put(f, "quick", q);
+        return q;
     }
 
     private static string? QuickHash(string path)
@@ -187,15 +218,18 @@ public static class Duplicates
         return groups;
     }
 
-    /// <summary>Number of different files on disk (hard links of one file count once).</summary>
+    /// <summary>Number of different copies on disk (hard links and clones of one file count once).</summary>
     private static int CountCopies(List<FileItem> files)
     {
-        var ids = new HashSet<(ulong, ulong)>();
+        // clones and hard links share their blocks (drives that clone); otherwise hard links share the file id
+        var ids = new HashSet<(bool, ulong, ulong)>();
         var unknown = 0;
         foreach (var f in files)
         {
-            if (FileIdentity.Of(f.FullPath) is { } id)
-                ids.Add(id);
+            if (Native.FileClone.FirstBlock(f.FullPath) is { } b)
+                ids.Add((true, b.Item1, b.Item2));
+            else if (FileIdentity.Of(f.FullPath) is { } id)
+                ids.Add((false, id.Item1, id.Item2));
             else
                 unknown++;
         }
@@ -211,13 +245,13 @@ public static class Duplicates
     /// </summary>
     public static List<DuplicateFolderGroup> FindFolders(DirNode root, DuplicateOptions o, IProgress<DuplicateProgress>? progress = null, CancellationToken ct = default)
     {
-        var folders = root.AllFolders().Where(d => !ReferenceEquals(d, root)).ToList();
+        var folders = Folders(root, o).Where(d => !ReferenceEquals(d, root)).ToList();
         var min = Math.Max(1, o.MinSize);
 
         // 1. a signature of names + sizes, bottom-up
         progress?.Report(new DuplicateProgress { Phase = "Comparing folder structure" });
         var sig = new Dictionary<DirNode, UInt128>(folders.Count + 1);
-        Signature(root, sig, null, ct);
+        Signature(root, sig, null, o, ct);
         var candidates = folders
             .Where(d => d.Size >= min && d.FileCount > 0)
             .GroupBy(d => sig[d])
@@ -229,14 +263,14 @@ public static class Duplicates
         var hashes = new ConcurrentDictionary<FileItem, string>();
         if (o.ReadsContents && candidates.Count > 0)
         {
-            var files = candidates.SelectMany(g => g).Distinct().SelectMany(d => d.AllFiles()).Distinct().ToList();
-            HashAll(files, o.Hash, hashes, progress, ct);
+            var files = candidates.SelectMany(g => g).Distinct().SelectMany(d => Folders(d, o)).Distinct().SelectMany(d => d.Files).ToList();
+            HashAll(files, o, hashes, progress, ct);
             var verified = new Dictionary<DirNode, UInt128>();
             var split = new List<List<DirNode>>();
             foreach (var g in candidates)
             {
                 foreach (var d in g)
-                    Signature(d, verified, hashes, ct);
+                    Signature(d, verified, hashes, o, ct);
                 split.AddRange(g.GroupBy(d => verified[d]).Where(x => x.Skip(1).Any()).Select(x => x.ToList()));
             }
             candidates = split;
@@ -285,18 +319,35 @@ public static class Duplicates
         return groups;
     }
 
-    private static void HashAll(List<FileItem> files, HashKind kind, ConcurrentDictionary<FileItem, string> hashes, IProgress<DuplicateProgress>? progress, CancellationToken ct)
+    private static void HashAll(List<FileItem> files, DuplicateOptions o, ConcurrentDictionary<FileItem, string> hashes, IProgress<DuplicateProgress>? progress, CancellationToken ct)
     {
         long done = 0;
         var total = files.Count;
         Parallel.ForEach(files, new ParallelOptions { CancellationToken = ct, MaxDegreeOfParallelism = 4 }, f =>
         {
-            ContentHash(f, kind, hashes, ct);
+            ContentHash(f, o, hashes, ct);
             var d = Interlocked.Increment(ref done);
             if ((d & 31) == 0 || d == total)
                 progress?.Report(new DuplicateProgress { Phase = "Comparing contents", Done = d, Total = total });
         });
     }
+
+    /// <summary>All folders below (and with) root, without ignored ones and what is in them.</summary>
+    private static IEnumerable<DirNode> Folders(DirNode root, DuplicateOptions o)
+    {
+        var stack = new Stack<DirNode>();
+        stack.Push(root);
+        while (stack.Count > 0)
+        {
+            var d = stack.Pop();
+            yield return d;
+            foreach (var c in d.Dirs)
+                if (!Ignored(c, o))
+                    stack.Push(c);
+        }
+    }
+
+    private static bool Ignored(DirNode d, DuplicateOptions o) => o.Ignore.Count > 0 && FolderRules.MatchesFolder(d.FullPath, d.Name, o.Ignore);
 
     private static bool IsBelow(DirNode d, DirNode ancestor)
     {
@@ -307,7 +358,7 @@ public static class Duplicates
     }
 
     /// <summary>Order-independent 128-bit signature of a folder's names, sizes (and checksums).</summary>
-    private static UInt128 Signature(DirNode d, Dictionary<DirNode, UInt128> sig, ConcurrentDictionary<FileItem, string>? hashes, CancellationToken ct)
+    private static UInt128 Signature(DirNode d, Dictionary<DirNode, UInt128> sig, ConcurrentDictionary<FileItem, string>? hashes, DuplicateOptions o, CancellationToken ct)
     {
         // iterative post-order: deep trees must not overflow the stack
         var stack = new Stack<(DirNode Node, bool Done)>();
@@ -322,10 +373,11 @@ public static class Duplicates
                     ct.ThrowIfCancellationRequested();
                 stack.Push((node, true));
                 foreach (var c in node.Dirs)
-                    stack.Push((c, false));
+                    if (!Ignored(c, o))
+                        stack.Push((c, false));
                 continue;
             }
-            var dirs = node.Dirs;
+            var dirs = o.Ignore.Count == 0 ? node.Dirs : node.Dirs.Where(c => !Ignored(c, o)).ToArray();
             var files = node.Files;
             UInt128 acc = (UInt128)(ulong)dirs.Length << 64 | (ulong)files.Length;
             foreach (var f in files)
@@ -394,7 +446,7 @@ public static class Duplicates
             // the parent is already contained somewhere: its sub folders are, too
             if (a.Parent != null && found.ContainsKey(a.Parent))
                 continue;
-            var files = Relative(a);
+            var files = Relative(a, o);
             if (files.Count == 0)
                 continue;
             var (probeRel, probe) = files.MaxBy(x => x.File.Size);
@@ -422,7 +474,7 @@ public static class Duplicates
     }
 
     /// <summary>All files of a folder with their path below it ("sub/name").</summary>
-    private static List<(string Rel, FileItem File)> Relative(DirNode root)
+    private static List<(string Rel, FileItem File)> Relative(DirNode root, DuplicateOptions o)
     {
         var list = new List<(string, FileItem)>();
         var stack = new Stack<(DirNode, string)>();
@@ -433,7 +485,8 @@ public static class Duplicates
             foreach (var f in d.Files)
                 list.Add((prefix + f.Name, f));
             foreach (var c in d.Dirs)
-                stack.Push((c, prefix + c.Name + "/"));
+                if (!Ignored(c, o))
+                    stack.Push((c, prefix + c.Name + "/"));
         }
         return list;
     }
@@ -481,8 +534,8 @@ public static class Duplicates
             for (var i = 0; i < parts.Length - 1; i++)
                 d = d!.Dirs.First(x => string.Equals(x.Name, parts[i], StringComparison.OrdinalIgnoreCase));
             var other = d!.Files.First(x => string.Equals(x.Name, parts[^1], StringComparison.OrdinalIgnoreCase));
-            var h1 = ContentHash(f, o.Hash, hashes, ct);
-            if (h1 == null || h1 != ContentHash(other, o.Hash, hashes, ct))
+            var h1 = ContentHash(f, o, hashes, ct);
+            if (h1 == null || h1 != ContentHash(other, o, hashes, ct))
                 return false;
         }
         return true;
@@ -504,5 +557,78 @@ public static class FileIdentity
         if (OperatingSystem.IsLinux() && Native.UnixStat.TryGet(path, out var i))
             return (i.Device, i.Inode);
         return null;
+    }
+}
+
+/// <summary>
+/// Folder rules of the duplicate tabs: a rule with a path separator is a path (wildcards, environment variables,
+/// the folder and everything below it); without one it is a folder name found anywhere in the path (".git").
+/// </summary>
+public static class FolderRules
+{
+    public static IReadOnlyList<string> DefaultProtected => OperatingSystem.IsWindows()
+        ? [@"%WINDIR%\", @"%ProgramFiles%\", @"%ProgramFiles(x86)%\", @"%ProgramData%\", ".git", ".svn", ".hg"]
+        : ["/usr/", "/bin/", "/sbin/", "/lib/", "/lib64/", "/etc/", "/boot/", "/opt/", "/snap/", "/var/lib/", ".git", ".svn", ".hg"];
+
+    public static IReadOnlyList<string> DefaultIgnored => OperatingSystem.IsWindows()
+        ? ["$Recycle.Bin", "System Volume Information"]
+        : [".Trash-*", ".Trash", "lost+found"];
+
+    private static char Sep => OperatingSystem.IsWindows() ? '\\' : '/';
+
+    private static string Normalize(string s)
+    {
+        s = Environment.ExpandEnvironmentVariables(s.Trim());
+        return OperatingSystem.IsWindows() ? s.Replace('/', '\\') : s;
+    }
+
+    private static bool IsPathRule(string rule) => rule.Contains('/') || rule.Contains('\\');
+
+    /// <summary>The folder itself is meant by a rule (its name, or its path / a path above it).</summary>
+    public static bool MatchesFolder(string fullPath, string name, IReadOnlyList<string> rules)
+    {
+        foreach (var raw in rules)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+                continue;
+            var rule = Normalize(raw);
+            if (IsPathRule(rule) ? PathMatches(fullPath, rule) : Scanning.Wildcard.IsMatch(name, rule))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>A file or folder is in (or is) a folder meant by a rule.</summary>
+    public static bool Contains(string path, IReadOnlyList<string> rules)
+    {
+        string[]? parts = null;
+        foreach (var raw in rules)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+                continue;
+            var rule = Normalize(raw);
+            if (IsPathRule(rule))
+            {
+                if (PathMatches(path, rule))
+                    return true;
+                continue;
+            }
+            parts ??= path.Split(['\\', '/'], StringSplitOptions.RemoveEmptyEntries);
+            foreach (var p in parts)
+                if (Scanning.Wildcard.IsMatch(p, rule))
+                    return true;
+        }
+        return false;
+    }
+
+    private static bool PathMatches(string path, string rule)
+    {
+        var r = rule.TrimEnd(Sep);
+        if (r.Length == 0)
+            return true; // "/" : everything
+        var cmp = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        if (!r.Contains('*') && !r.Contains('?'))
+            return path.Equals(r, cmp) || path.StartsWith(r + Sep, cmp);
+        return Scanning.Wildcard.IsMatch(path, r) || Scanning.Wildcard.IsMatch(path, r + Sep + "*");
     }
 }

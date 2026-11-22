@@ -215,45 +215,79 @@ public static class FileOperations
     }
 
     /// <summary>
-    /// Replaces each duplicate with a hard link to <paramref name="keep"/> (same volume only). The duplicate is
-    /// renamed first and only deleted once the link exists, so nothing is lost on failure.
+    /// Replaces each duplicate with a hard link to <paramref name="keep"/> (same drive only). The link is made under
+    /// a temporary name next to the duplicate and then renamed over it, so nothing is lost on failure.
     /// </summary>
-    public static OperationResult ReplaceWithHardlinks(string keep, IReadOnlyList<string> duplicates)
+    public static OperationResult ReplaceWithHardlinks(string keep, IReadOnlyList<string> duplicates) =>
+        ReplaceEach(keep, duplicates, ".byteatlas-link", keepDates: false, (k, tmp) =>
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                if (!Win32.CreateHardLink(tmp, k, IntPtr.Zero))
+                    throw new IOException(new System.ComponentModel.Win32Exception(System.Runtime.InteropServices.Marshal.GetLastWin32Error()).Message);
+            }
+            else
+                FileClone.HardLinkUnix(k, tmp);
+        });
+
+    /// <summary>
+    /// Replaces each duplicate with a copy-on-write clone of <paramref name="keep"/>: the blocks are stored once, but
+    /// unlike hard links each file stays a file of its own (changing one does not change the other). Needs ReFS / a
+    /// Dev Drive on Windows, btrfs / XFS (reflink) / bcachefs on Linux. Dates and attributes of each duplicate stay.
+    /// </summary>
+    public static OperationResult ReplaceWithClones(string keep, IReadOnlyList<string> duplicates) =>
+        ReplaceEach(keep, duplicates, ".byteatlas-clone", keepDates: true, FileClone.Clone);
+
+    private static OperationResult ReplaceEach(string keep, IReadOnlyList<string> duplicates, string suffix, bool keepDates, Action<string, string> make)
     {
-        if (!OperatingSystem.IsWindows())
-            return new OperationResult(0, duplicates.Count, ["Hard links are only created on Windows."]);
         var errors = new List<string>();
         var done = 0;
-        var keepRoot = Path.GetPathRoot(Path.GetFullPath(keep));
         foreach (var d in duplicates)
         {
-            if (!string.Equals(Path.GetPathRoot(Path.GetFullPath(d)), keepRoot, StringComparison.OrdinalIgnoreCase))
-            {
-                errors.Add($"{d}: on another drive than {keep}");
-                continue;
-            }
-            var tmp = d + ".byteatlas-dedup";
+            var tmp = d + suffix;
             try
             {
-                File.Move(d, tmp);
-                if (!Win32.CreateHardLink(d, keep, IntPtr.Zero))
+                var info = new FileInfo(d);
+                var (attrs, created, modified, accessed) = (info.Attributes, info.CreationTimeUtc, info.LastWriteTimeUtc, info.LastAccessTimeUtc);
+                make(keep, tmp);
+                if (keepDates)
                 {
-                    var err = new System.ComponentModel.Win32Exception(System.Runtime.InteropServices.Marshal.GetLastWin32Error()).Message;
-                    File.Move(tmp, d);
-                    errors.Add($"{d}: {err}");
-                    continue;
+                    File.SetCreationTimeUtc(tmp, created);
+                    File.SetLastWriteTimeUtc(tmp, modified);
+                    File.SetLastAccessTimeUtc(tmp, accessed);
                 }
-                File.Delete(tmp);
+                // a read-only duplicate cannot be replaced: clear it first, put it back on the new file
+                if ((attrs & FileAttributes.ReadOnly) != 0)
+                    File.SetAttributes(d, attrs & ~FileAttributes.ReadOnly);
+                try
+                {
+                    File.Move(tmp, d, true);
+                }
+                catch
+                {
+                    if ((attrs & FileAttributes.ReadOnly) != 0)
+                        File.SetAttributes(d, attrs);
+                    throw;
+                }
+                if (keepDates)
+                    File.SetAttributes(d, attrs & ~(FileAttributes.Compressed | FileAttributes.Encrypted | FileAttributes.SparseFile | FileAttributes.ReparsePoint));
                 done++;
             }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
             {
-                if (File.Exists(tmp) && !File.Exists(d))
-                    File.Move(tmp, d);
+                try
+                {
+                    if (File.Exists(tmp))
+                        File.Delete(tmp);
+                }
+                catch (Exception e2) when (e2 is IOException or UnauthorizedAccessException)
+                {
+                    errors.Add($"{tmp}: left behind ({e2.Message})");
+                }
                 errors.Add($"{d}: {e.Message}");
             }
         }
-        return new OperationResult(done, errors.Count, errors);
+        return new OperationResult(done, duplicates.Count - done, errors);
     }
 
     private static string TargetPath(string src, string target, bool keepStructure, string? baseFolder)

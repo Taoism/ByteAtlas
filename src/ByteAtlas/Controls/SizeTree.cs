@@ -175,7 +175,9 @@ public sealed class SizeTree : UserControl
             if (Group != null)
                 _expanded.Add(Group.Root);
             Rebuild();
-            Select(items[0]);
+            // scrolled to, not selected: the selection is what the duplicate tabs look in
+            if (_rows.FirstOrDefault(r => ReferenceEquals(r.Item, items[0]) && r.Kind != RowKind.FilesGroup) is { } row)
+                _list.ScrollIntoView(row);
         }
         else
             _list.InvalidateVisual();

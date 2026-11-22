@@ -26,6 +26,7 @@ internal static class CliApp
                 "scan" => await ScanAsync(args[1..]),
                 "compare" => await CompareAsync(args[1..]),
                 "search" => await SearchAsync(args[1..]),
+                "duplicates" or "dup" => await DuplicatesAsync(args[1..]),
                 "history" => History(args[1..]),
                 "schedule" => Schedule(args[1..]),
                 "--version" or "version" => Version(),
@@ -80,6 +81,17 @@ internal static class CliApp
           byteatlas-cli search <path> [--template large|old|temp|duplicates|longpaths]
                 [--name PATTERN] [--min-size 100MB] [--max-size 1GB] [--older-days N] [--newer-days N]
                 [--owner TEXT] [--hash md5|sha256|none] [--export FILE] [--max N]
+          byteatlas-cli duplicates <path-or-index> [more paths…] [options]
+            --folders                 folders with the same contents instead of files
+            --match contents|name-contents|name-size   what must be the same (default contents; name-size reads nothing)
+            --hash md5|sha256         checksum of whole files (default md5)
+            --min-size SIZE           leave out smaller files / folders (default 1MB)
+            --no-subsets              folders: not those whose files are all found in a bigger folder
+            --ignore PATTERN          leave out folders (name like node_modules, or a path; repeatable)
+            --no-remember             read every file (checksums are remembered between runs otherwise)
+            --cache DIR               keep the scans in DIR (as scan --cache)
+            --top N                   groups printed (default 30)
+            --export FILE             write all groups: .xlsx .pdf .html .csv .txt (repeatable)
           byteatlas-cli history <path> [--export FILE.csv]
 
           byteatlas-cli schedule list | remove NAME
@@ -452,6 +464,150 @@ internal static class CliApp
                 [new ExportColumn("Path", ColumnKind.Text), new ExportColumn("Group", ColumnKind.Number), new ExportColumn("Checksum", ColumnKind.Text)]);
             Write(t, export, new ExportSettings());
         }
+        return 0;
+    }
+
+    private static async Task<int> DuplicatesAsync(string[] a)
+    {
+        var paths = new List<string>();
+        var o = new DuplicateOptions { MinSize = 1L << 20, Ignore = [.. FolderRules.DefaultIgnored] };
+        var folders = false;
+        var remember = true;
+        var top = 30;
+        var exports = new List<string>();
+        string? cacheDir = null;
+        for (var i = 0; i < a.Length; i++)
+        {
+            string Next() => i + 1 < a.Length ? a[++i] : throw new ArgumentException($"{a[i]} needs a value");
+            switch (a[i])
+            {
+                case "--folders":
+                    folders = true;
+                    break;
+                case "--match":
+                    o.Match = Next() switch
+                    {
+                        "contents" => DuplicateMatch.Contents,
+                        "name-contents" => DuplicateMatch.NameAndContents,
+                        "name-size" => DuplicateMatch.NameAndSize,
+                        var m => throw new ArgumentException($"--match {m}: use contents, name-contents or name-size"),
+                    };
+                    break;
+                case "--hash":
+                    o.Hash = Next() == "sha256" ? HashKind.Sha256 : HashKind.Md5;
+                    break;
+                case "--min-size":
+                    o.MinSize = SizeFormat.TryParse(Next(), out var mn) ? mn : throw new FormatException("bad --min-size");
+                    break;
+                case "--no-subsets":
+                    o.Subsets = false;
+                    break;
+                case "--ignore":
+                    o.Ignore = [.. o.Ignore, Next()];
+                    break;
+                case "--no-remember":
+                    remember = false;
+                    break;
+                case "--cache":
+                    cacheDir = Next();
+                    break;
+                case "--top":
+                    top = int.Parse(Next(), CultureInfo.InvariantCulture);
+                    break;
+                case "--export":
+                    exports.Add(Next());
+                    break;
+                default:
+                    if (a[i].StartsWith("--", StringComparison.Ordinal))
+                        return Fail("unknown option " + a[i]);
+                    paths.Add(a[i]);
+                    break;
+            }
+        }
+        if (paths.Count == 0)
+            return Fail("duplicates needs a path (or several: copies spread over them are found too)");
+
+        var opt = new ScanOptions { CollectOwners = false };
+        var scans = new List<ScanSession>();
+        foreach (var p in paths)
+        {
+            ScanSession s;
+            if (cacheDir != null && !File.Exists(p) && ScanCache.Load(cacheDir, p, opt) is { } cached)
+            {
+                s = cached;
+                await Scanner.RefreshChangesAsync(s, CancellationToken.None);
+            }
+            else
+                s = await LoadOrScanAsync(p, opt);
+            if (cacheDir != null && s.IndexFile == null && s.State == ScanState.Done)
+                ScanCache.Save(s, cacheDir);
+            scans.Add(s);
+        }
+        var scan = scans.Count == 1 ? scans[0] : ScanGroup.Build(scans);
+        o.CanRead = scans.TrueForAll(s => s.IndexFile == null);
+        using var store = remember && o.ReadsContents ? new ChecksumStore() : null;
+        o.Checksums = store;
+
+        var sw = Stopwatch.StartNew();
+        var interactive = !Console.IsOutputRedirected;
+        var progress = new Progress<DuplicateProgress>(p =>
+        {
+            if (interactive && p.Total > 0)
+                Console.Write($"\r{p.Phase}: {p.Done:N0} of {p.Total:N0}   ");
+        });
+        var title = (folders ? "Duplicate folders: " : "Duplicate files: ") + string.Join(", ", scans.Select(s => s.Root.FullPath));
+        ExportTable table;
+        long freed;
+        int count;
+        if (folders)
+        {
+            var groups = Duplicates.FindFolders(scan.Root, o, progress, CancellationToken.None);
+            if (interactive)
+                Console.Write("\r" + new string(' ', 60) + "\r");
+            (freed, count) = (groups.Sum(g => g.Wasted), groups.Count);
+            foreach (var g in groups.Take(top))
+            {
+                Console.WriteLine(g.IsSubset
+                    ? $"[{g.Number}] {SizeFormat.Format(g.Wasted),10} could be freed: {g.Folders.Count - 1} folder(s) contained in {g.Folders[0].FullPath}"
+                    : $"[{g.Number}] {SizeFormat.Format(g.Wasted),10} could be freed: {g.Folders.Count} × {SizeFormat.Format(g.Folders[0].Size)}");
+                foreach (var d in g.Folders)
+                    Console.WriteLine("      " + d.FullPath);
+            }
+            var rows = groups.SelectMany(g => g.Folders.Select((d, i) => (Item: (Item)d, g.Number, Role: !g.IsSubset ? "Same contents" : i == 0 ? "Holds all files of the others" : "Contained in " + g.Folders[0].FullPath))).ToList();
+            var by = rows.ToDictionary(r => r.Item);
+            table = ExportBuilder.Items(title, rows.Select(r => r.Item), scan, [TreeColumn.Name, TreeColumn.Size, TreeColumn.Files, TreeColumn.Modified],
+                i => [by[i].Item.FullPath, (long)by[i].Number, by[i].Role],
+                [new ExportColumn("Path", ColumnKind.Text), new ExportColumn("Group", ColumnKind.Number), new ExportColumn("Role", ColumnKind.Text)]);
+        }
+        else
+        {
+            var groups = Duplicates.FindFiles(scan.Root, o, progress, CancellationToken.None);
+            if (interactive)
+                Console.Write("\r" + new string(' ', 60) + "\r");
+            (freed, count) = (groups.Sum(g => g.Wasted), groups.Count);
+            foreach (var g in groups.Take(top))
+            {
+                Console.WriteLine($"[{g.Number}] {SizeFormat.Format(g.Wasted),10} could be freed: {g.Files.Count} × {SizeFormat.Format(g.Size)}"
+                    + (g.DistinctCopies < g.Files.Count ? $" ({g.Files.Count - g.DistinctCopies} already linked or cloned)" : ""));
+                foreach (var f in g.Files)
+                    Console.WriteLine("      " + f.FullPath);
+            }
+            var rows = groups.SelectMany(g => g.Files.Select(f => (Item: (Item)f, g.Number, g.Hash))).ToList();
+            var by = rows.ToDictionary(r => r.Item);
+            table = ExportBuilder.Items(title, rows.Select(r => r.Item), scan, [TreeColumn.Name, TreeColumn.Size, TreeColumn.Modified],
+                i => [by[i].Item.FullPath, (long)by[i].Number, by[i].Hash],
+                [new ExportColumn("Path", ColumnKind.Text), new ExportColumn("Group", ColumnKind.Number), new ExportColumn("Checksum", ColumnKind.Text)]);
+        }
+        if (count > top)
+            Console.WriteLine($"… {count - top} more groups (--top N)");
+        var how = o.ReadsContents ? "contents compared" : "names and sizes only";
+        if (store is { Hits: > 0 })
+            how += $", {store.Hits:N0} checksums remembered";
+        Console.WriteLine($"{count:N0} groups, {SizeFormat.Format(freed)} could be freed ({how}, {sw.Elapsed.TotalSeconds:N1} s)");
+        store?.Flush();
+        table.Subtitle.Add($"{count:N0} groups, {SizeFormat.Format(freed)} could be freed");
+        foreach (var e in exports)
+            Write(table, e, new ExportSettings());
         return 0;
     }
 

@@ -36,6 +36,59 @@ public sealed partial class MainWindow
         public DirNode? Scope { get; set; }
         public CancellationTokenSource? Cts { get; set; }
         public string Freed { get; set; } = "";
+        public CheckBox AllScans { get; set; } = null!;
+    }
+
+    /// <summary>"All open scans" without View › Group scans: a group of its own, kept so its results stay current.</summary>
+    private ScanSession? _dupGroup;
+
+    private async Task DuplicateSettingsAsync()
+    {
+        if (await DuplicateRulesDialog.EditAsync(this, _settings, ForgetChecksums))
+        {
+            _settings.Save();
+            SetStatus("Duplicate settings saved: click Find to look again with them.");
+        }
+    }
+
+    private static void ForgetChecksums()
+    {
+        try
+        {
+            using var store = new Storage.ChecksumStore();
+            store.Clear();
+        }
+        catch (Microsoft.Data.Sqlite.SqliteException)
+        {
+            // in use by a running search: it is forgotten with the next one
+        }
+    }
+
+    /// <summary>The scan and folder a search looks in: the tree selection, or every open scan.</summary>
+    private (ScanSession, DirNode)? DuplicateScope()
+    {
+        if (_settings.DuplicateAllScans && _tree.Scans.Count > 1)
+        {
+            if (_group != null)
+                return (_group, _group.Root);
+            if (_dupGroup == null)
+                _dupGroup = ScanGroup.Build(_tree.Scans);
+            else
+                ScanGroup.Refresh(_dupGroup, _tree.Scans);
+            return (_dupGroup, _dupGroup.Root);
+        }
+        return SelectedScan is { } s && SelectedFolder is { } d ? (s, d) : null;
+    }
+
+    private bool IsProtected(ItemRow r) => FolderRules.Contains(r.Path, _settings.DuplicateProtected);
+
+    /// <summary>Takes protected copies out of a selection (with a note in the status bar).</summary>
+    private List<ItemRow> WithoutProtected(List<ItemRow> sel)
+    {
+        var ok = sel.Where(r => !IsProtected(r)).ToList();
+        if (ok.Count < sel.Count)
+            SetStatus($"{sel.Count - ok.Count:N0} selected item(s) are in protected folders and are left alone (Settings…).");
+        return ok;
     }
 
     private DupView? _dupFiles;
@@ -108,6 +161,17 @@ public sealed partial class MainWindow
             subsets.IsCheckedChanged += (_, _) => _settings.DuplicateSubsets = subsets.IsChecked == true;
             bar.Children.Add(subsets);
         }
+        var all = new CheckBox { Content = "All open scans", IsChecked = _settings.DuplicateAllScans, VerticalAlignment = VerticalAlignment.Center };
+        ToolTip.SetTip(all, "Look in every open scan together (copies spread over several drives) instead of below the tree selection");
+        all.IsCheckedChanged += (_, _) =>
+        {
+            _settings.DuplicateAllScans = all.IsChecked == true;
+            _dupFiles?.AllScans.IsChecked = all.IsChecked;
+            _dupFolders?.AllScans.IsChecked = all.IsChecked;
+        };
+        v.AllScans = all;
+        bar.Children.Add(all);
+        bar.Children.Add(ToolButton("Settings…", DuplicateSettingsAsync, "Protected folders, ignored folders, remembered checksums"));
         bar.Children.Add(new Border { Width = 10 });
         bar.Children.Add(new TextBlock { Text = "Keep", VerticalAlignment = VerticalAlignment.Center });
         var keep = new ComboBox { ItemsSource = KeepRules, SelectedItem = KeepRules.Contains(_settings.DuplicateKeep) ? _settings.DuplicateKeep : KeepRules[0], MinWidth = 150 };
@@ -120,8 +184,14 @@ public sealed partial class MainWindow
         bar.Children.Add(keep);
         bar.Children.Add(ToolButton("Select the other copies", () => SelectCopies(v), "Selects every copy of each group except the one to keep"));
         bar.Children.Add(ToolButton($"Delete selected ({Shell.TrashName})", () => DeleteDuplicatesAsync(v, true)));
-        if (!folders && OperatingSystem.IsWindows())
-            bar.Children.Add(ToolButton("Hard-link selected…", () => HardlinkDuplicatesAsync(v), "The selected copies become hard links to the copy kept in their group (same NTFS drive)"));
+        if (!folders && (OperatingSystem.IsWindows() || OperatingSystem.IsLinux()))
+        {
+            bar.Children.Add(ToolButton("Hard-link selected…", () => ReplaceDuplicatesAsync(v, clone: false), "The selected copies become hard links to the copy kept in their group (same drive; changing one changes all)"));
+            bar.Children.Add(ToolButton("Clone selected…", () => ReplaceDuplicatesAsync(v, clone: true),
+                OperatingSystem.IsWindows()
+                    ? "The selected copies become copy-on-write clones of the kept copy: stored once, but each stays its own file (ReFS / Dev Drive)"
+                    : "The selected copies become copy-on-write clones of the kept copy: stored once, but each stays its own file (btrfs, XFS, bcachefs)"));
+        }
         bar.Children.Add(ToolButton("Move selected…", () => MoveDuplicatesAsync(v)));
         bar.Children.Add(ToolButton("Show in chart", () => ShowGroupInChart(v), "Shows the folder holding the selected group in the treemap, the copies outlined"));
         bar.Children.Add(ToolButton("Export…", () => ExportDuplicatesAsync(v)));
@@ -151,11 +221,13 @@ public sealed partial class MainWindow
     private void UpdateDuplicates(int tab, ScanSession s, DirNode d)
     {
         var v = DupOf(tab);
+        if (DuplicateScope() is { } scope)
+            (s, d) = scope;
         SetFindLabel(v, d);
         if (v.Cts != null)
             return;
         // a new scan, a removed one, or the same scan refreshed (change journal, F5): look again
-        var stale = v.Scan == null || !_tree.Scans.Contains(v.Scan) && !ReferenceEquals(v.Scan, _group) || Stamp(v.Scan) != v.Stamp;
+        var stale = v.Scan == null || !_tree.Scans.Contains(v.Scan) && !ReferenceEquals(v.Scan, _group) && !ReferenceEquals(v.Scan, _dupGroup) || Stamp(v.Scan) != v.Stamp;
         if (stale && s.State is ScanState.Done)
             _ = FindDuplicatesAsync(v);
     }
@@ -167,7 +239,7 @@ public sealed partial class MainWindow
             await v.Cts.CancelAsync();
             return;
         }
-        if (SelectedScan is not { } s || SelectedFolder is not { } d)
+        if (DuplicateScope() is not var (s, d))
             return;
         if (s.State is ScanState.Scanning or ScanState.Paused)
         {
@@ -181,7 +253,21 @@ public sealed partial class MainWindow
             MinSize = _settings.DuplicateMinSize,
             Subsets = _settings.DuplicateSubsets,
             CanRead = CanReadFiles(s),
+            Ignore = [.. _settings.DuplicateIgnored],
         };
+        Storage.ChecksumStore? store = null;
+        if (_settings.DuplicateRememberChecksums && o.ReadsContents)
+        {
+            try
+            {
+                store = new Storage.ChecksumStore();
+                o.Checksums = store;
+            }
+            catch (Microsoft.Data.Sqlite.SqliteException)
+            {
+                // unreadable store: read every file this time
+            }
+        }
         var cts = new CancellationTokenSource();
         v.Cts = cts;
         v.Find.Content = "Stop";
@@ -202,6 +288,8 @@ public sealed partial class MainWindow
             v.Scope = d;
             ShowDuplicateRows(v, rows.Rows, rows.Groups, rows.Freed);
             var how = o.ReadsContents ? "contents compared" : "names and sizes only" + (o.CanRead ? "" : " (files of this scan cannot be read)");
+            if (store is { Hits: > 0 })
+                how += $" ({store.Hits:N0} checksums remembered)";
             v.Summary.Text = DupSummary(v) + $"  ·  {how}  ·  {d.FullPath}  ·  {(DateTime.Now - started).TotalSeconds:N1} s";
         }
         catch (OperationCanceledException)
@@ -217,6 +305,22 @@ public sealed partial class MainWindow
             var stopped = cts.IsCancellationRequested;
             v.Cts = null;
             cts.Dispose();
+            if (store != null)
+            {
+                // also after Stop: what was read is kept
+                await Task.Run(() =>
+                {
+                    try
+                    {
+                        store.Flush();
+                    }
+                    catch (Microsoft.Data.Sqlite.SqliteException)
+                    {
+                        // another search writes: these are found again next time
+                    }
+                    store.Dispose();
+                }, CancellationToken.None);
+            }
             SetFindLabel(v, d);
             // the scan changed while looking and the tab is still shown: look again
             if (!stopped && Stamp(s) != stamp && s.State == ScanState.Done && _tabs.SelectedIndex == (v.Folders ? DupFoldersTab : DupFilesTab))
@@ -224,7 +328,9 @@ public sealed partial class MainWindow
         }
     }
 
-    private static (DateTime, long, long) Stamp(ScanSession s) => (s.Finished, s.Root.FileCount, s.Root.Size);
+    private static (DateTime, long, long) Stamp(ScanSession s) => !s.IsGroup
+        ? (s.Finished, s.Root.FileCount, s.Root.Size)
+        : (s.Members.Count == 0 ? default : s.Members.Max(m => m.Finished), s.Members.Sum(m => m.Root.FileCount), s.Members.Sum(m => m.Root.Size) + s.Members.Count);
 
     private static bool CanReadFiles(ScanSession s) =>
         s.Remote == null && s.IndexFile == null && (!s.IsGroup || s.Members.All(m => m.Remote == null && m.IndexFile == null));
@@ -237,7 +343,7 @@ public sealed partial class MainWindow
         var rows = new List<ItemRow>();
         foreach (var g in groups)
         {
-            var links = g.DistinctCopies < g.Files.Count ? $", {g.Files.Count - g.DistinctCopies} already hard-linked" : "";
+            var links = g.DistinctCopies < g.Files.Count ? $", {g.Files.Count - g.DistinctCopies} already linked or cloned" : "";
             var title = $"{g.Number}.  {g.Files.Count} × {_settings.Size(g.Size)}  ·  {_settings.Size(g.Wasted)} could be freed{links}";
             foreach (var f in g.Files)
                 rows.Add(new ItemRow(f, ScanOf(s, f), _settings) { Group = g.Number, Hash = g.Hash, GroupTitle = title });
@@ -333,9 +439,20 @@ public sealed partial class MainWindow
     {
         v.Grid.SelectedItems.Clear();
         var inside = SelectedFolder;
+        var skipped = 0;
         foreach (var g in v.Rows.GroupBy(r => r.Group))
         {
             var list = g.ToList();
+            var holder = list[0].Detail.StartsWith("Holds", StringComparison.Ordinal) ? list[0] : null;
+            // protected copies are never selected; a protected copy is the one kept, every other may go
+            var free = list.Where(r => !IsProtected(r)).ToList();
+            if (free.Count < list.Count)
+            {
+                skipped += list.Count - free.Count;
+                foreach (var r in free.Where(r => !ReferenceEquals(r, holder)))
+                    v.Grid.SelectedItems.Add(r);
+                continue;
+            }
             ItemRow keep;
             if (list[0].Detail.StartsWith("Holds", StringComparison.Ordinal))
                 keep = list[0]; // subsets: the folder holding everything stays
@@ -355,7 +472,8 @@ public sealed partial class MainWindow
                 v.Grid.SelectedItems.Add(r);
         }
         var n = v.Grid.SelectedItems.Count;
-        SetStatus($"{n:N0} copies selected ({_settings.Size(v.Grid.SelectedItems.OfType<ItemRow>().Sum(r => r.Size))}); one of each group is kept ({_settings.DuplicateKeep.ToLowerInvariant()}).");
+        SetStatus($"{n:N0} copies selected ({_settings.Size(v.Grid.SelectedItems.OfType<ItemRow>().Sum(r => r.Size))}); one of each group is kept ({_settings.DuplicateKeep.ToLowerInvariant()})."
+            + (skipped > 0 ? $" {skipped:N0} copies in protected folders are kept." : ""));
     }
 
     private static List<ItemRow> SelectedDupRows(DupView v) => [.. v.Grid.SelectedItems.OfType<ItemRow>()];
@@ -371,7 +489,7 @@ public sealed partial class MainWindow
 
     private async Task DeleteDuplicatesAsync(DupView v, bool recycle)
     {
-        var sel = SelectedDupRows(v);
+        var sel = WithoutProtected(SelectedDupRows(v));
         if (sel.Count == 0)
         {
             SetStatus("Select the copies to delete first (\"Select the other copies\" picks all but one of each group).");
@@ -395,7 +513,7 @@ public sealed partial class MainWindow
 
     private async Task MoveDuplicatesAsync(DupView v)
     {
-        var sel = SelectedDupRows(v);
+        var sel = WithoutProtected(SelectedDupRows(v));
         if (sel.Count == 0 || !CanReadFiles(v.Scan!) || !await ConfirmNotAllCopiesAsync(v, sel, "Move duplicates"))
             return;
         await MoveCopyAsync([.. sel.Select(x => x.Item)]);
@@ -403,9 +521,9 @@ public sealed partial class MainWindow
         DropGone(v);
     }
 
-    private async Task HardlinkDuplicatesAsync(DupView v)
+    private async Task ReplaceDuplicatesAsync(DupView v, bool clone)
     {
-        var sel = SelectedDupRows(v).ToHashSet();
+        var sel = WithoutProtected(SelectedDupRows(v)).ToHashSet();
         if (sel.Count == 0 || !CanReadFiles(v.Scan!))
         {
             SetStatus("Select the copies to replace first (\"Select the other copies\" picks all but one of each group).");
@@ -422,13 +540,21 @@ public sealed partial class MainWindow
         }
         if (plan.Count == 0)
         {
-            await MessageBox.ShowAsync(this, "Leave one file of each group unselected: the selected copies become hard links to it.", MessageKind.Info, "Hard links");
+            await MessageBox.ShowAsync(this, $"Leave one file of each group unselected: the selected copies become {(clone ? "clones" : "hard links")} of it.", MessageKind.Info, clone ? "Clones" : "Hard links");
             return;
         }
         var count = plan.Sum(p => p.Copies.Count);
-        if (!await MessageBox.ConfirmAsync(this,
-            $"Replace {count:N0} copies in {plan.Count:N0} groups with hard links to the kept file of each group?\n\nAll names stay, the content is stored once. Changing one of the files later changes them all. Works within one drive only.",
-            "Replace", "Hard links"))
+        if (clone && !Native.FileClone.CanClone(plan[0].Keep))
+        {
+            await MessageBox.ShowAsync(this, OperatingSystem.IsWindows()
+                ? "This drive cannot clone files: block cloning needs ReFS or a Dev Drive. Hard links work on NTFS."
+                : "Clones need btrfs, XFS (with reflink) or bcachefs.", MessageKind.Info, "Clones");
+            return;
+        }
+        var question = clone
+            ? $"Replace {count:N0} copies in {plan.Count:N0} groups with clones of the kept file of each group?\n\nAll names, dates and attributes stay and each file stays its own: changing one later does not change the others. The data is stored once until then. Works within one drive only; the sizes shown stay the same (each clone still counts its full size)."
+            : $"Replace {count:N0} copies in {plan.Count:N0} groups with hard links to the kept file of each group?\n\nAll names stay, the content is stored once. Changing one of the files later changes them all. Works within one drive only.";
+        if (!await MessageBox.ConfirmAsync(this, question, "Replace", clone ? "Clones" : "Hard links"))
             return;
         var result = await Task.Run(() =>
         {
@@ -436,7 +562,7 @@ public sealed partial class MainWindow
             var errors = new List<string>();
             foreach (var (keep, copies) in plan)
             {
-                var r = FileOperations.ReplaceWithHardlinks(keep, copies);
+                var r = clone ? FileOperations.ReplaceWithClones(keep, copies) : FileOperations.ReplaceWithHardlinks(keep, copies);
                 done += r.Done;
                 failed += r.Failed;
                 errors.AddRange(r.Errors);
@@ -449,7 +575,7 @@ public sealed partial class MainWindow
         var left = v.Rows.Where(r => !groups.Contains(r.Group)).ToList();
         ShowDuplicateRows(v, left, left.Select(r => r.Group).Distinct().Count(), FreedOf(left));
         v.Summary.Text = DupSummary(v);
-        await ReportAsync(result, "Replaced with hard links");
+        await ReportAsync(result, clone ? "Replaced with clones" : "Replaced with hard links");
         // allocated sizes changed: scan the folder again; the results are found again when it is done
         if (v.Scan is { IsGroup: false, IndexFile: null } s && v.Scope is { } scope && !_running.ContainsKey(s))
         {

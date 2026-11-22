@@ -91,8 +91,24 @@ clean-room, open source. Version 0.1.0 (2026-11-21).
   copies; delete (recycle bin / for good, warns when every copy of a group is selected), hard-link (Windows; the
   folder is scanned again afterwards), move, export. A selected group is marked in the tree (expanded, orange
   bar) and outlined in the treemap; "Show in chart" opens the treemap on the folder holding all copies.
+- Checksums remembered (checksums.db: path + size + modified time, unused entries dropped after 120 days; Settings… ›
+  Forget checksums): a search after a refresh only reads changed files.
+- Clone selected… (copy-on-write: ReFS / Dev Drive block cloning, FICLONE on btrfs / XFS / bcachefs): stored once, each
+  file stays its own, dates kept; tested on a Dev Drive. Hard links on Linux too (link + rename over the copy). Copies
+  sharing their blocks (clones, hard links) count as one copy.
+- Protected folders (never selected or deleted / linked / moved: Windows, Program Files, ProgramData, .git, …) and
+  ignored folders ($Recycle.Bin, …), editable in Settings…; "All open scans" finds copies spread over several scans.
+- `byteatlas-cli duplicates <paths…>` (--folders, --match, --hash, --min-size, --ignore, --cache, --export).
+- Result grids can be read and selected through UI automation (Value pattern: "3,5", "3-7", "all"); a selected
+  duplicate group is scrolled to in the tree without changing the tree selection.
 
 ## Open
+- [ ] Update check (GitHub releases) + winget / Scoop manifests.
+- [ ] "What grew" view: folders that grew most since the last history snapshot.
+- [ ] Low-space alerts from scheduled scans (desktop notification below a threshold).
+- [ ] GUI log file (errors, scan timings).
+- [ ] Release 0.5.0.
+- [ ] Later: similar images / audio; memory + speed pass for 10 M+ file scans.
 - [ ] Chart colours per file type: every extension / file group gets its own colour in the treemap, pie and bar
       charts, with a legend, editable colours (Options), the same colour for a type everywhere in the app.
 - [ ] Details view: file and folder icons, with folder icons drawn for both dark and light mode (no light outlines

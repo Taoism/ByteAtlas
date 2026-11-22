@@ -79,6 +79,14 @@ public sealed class AppSettings
     public long DuplicateMinSize { get; set; } = 1L << 20;
     public bool DuplicateSubsets { get; set; } = true;
     public string DuplicateKeep { get; set; } = "Oldest";
+    public bool DuplicateAllScans { get; set; }
+    public bool DuplicateRememberChecksums { get; set; } = true;
+
+    /// <summary>Never selected by "Select the other copies", never deleted / linked / moved from the duplicate tabs.</summary>
+    public List<string> DuplicateProtected { get; set; } = [.. FolderRules.DefaultProtected];
+
+    /// <summary>Left out of duplicate searches completely.</summary>
+    public List<string> DuplicateIgnored { get; set; } = [.. FolderRules.DefaultIgnored];
 
     // ----- details columns -----
     public List<string> DetailColumns { get; set; } = ["Name", "Size", "Allocated", "Percent", "Files", "Folders", "Modified", "Owner", "Type"];

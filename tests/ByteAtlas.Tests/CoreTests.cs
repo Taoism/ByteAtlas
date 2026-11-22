@@ -644,4 +644,107 @@ public class DuplicateTabTests
         Assert.Equal("part", Assert.Single(sub.Folders.Skip(1)).Name);
         Assert.Equal(10000, sub.Wasted);
     }
+
+    [Fact]
+    public void ChecksumsRemembered()
+    {
+        using var t = new TempTree();
+        var db = Path.Combine(Path.GetTempPath(), "byteatlas-sums-" + Guid.NewGuid().ToString("N")[..8] + ".db");
+        try
+        {
+            var s = t.Scan();
+            using (var store = new ChecksumStore(db))
+            {
+                Assert.Single(Duplicates.FindFiles(s.Root, new DuplicateOptions { Checksums = store }));
+                Assert.Equal(0, store.Hits);
+                store.Flush();
+            }
+            using (var store = new ChecksumStore(db))
+            {
+                Assert.Single(Duplicates.FindFiles(s.Root, new DuplicateOptions { Checksums = store }));
+                Assert.Equal(5, store.Hits); // quick checksums of dup1, dup2, notdup (same size) + full of dup1, dup2: no file read
+            }
+            // a changed file (other modified time) is read again: dup2 no longer matches
+            var dup2 = Path.Combine(t.Root, "other", "dup2.dat");
+            var data = File.ReadAllBytes(dup2);
+            data[100] ^= 0xFF;
+            File.WriteAllBytes(dup2, data);
+            File.SetLastWriteTimeUtc(dup2, DateTime.UtcNow.AddMinutes(5));
+            s = t.Scan();
+            using (var store = new ChecksumStore(db))
+                Assert.Empty(Duplicates.FindFiles(s.Root, new DuplicateOptions { Checksums = store }));
+        }
+        finally
+        {
+            foreach (var f in new[] { db, db + "-wal", db + "-shm" })
+                File.Delete(f);
+        }
+    }
+
+    [Fact]
+    public void IgnoredFoldersLeftOut()
+    {
+        using var t = new TempTree();
+        t.Write(@"node_modules\pkg\dup3.dat", 9000, seed: 7);
+        var s = t.Scan();
+        Assert.Equal(3, Assert.Single(Duplicates.FindFiles(s.Root, new DuplicateOptions())).Files.Count);
+        Assert.Equal(2, Assert.Single(Duplicates.FindFiles(s.Root, new DuplicateOptions { Ignore = ["node_modules"] })).Files.Count);
+        // the whole "other" folder by path: nothing left
+        Assert.Empty(Duplicates.FindFiles(s.Root, new DuplicateOptions { Ignore = ["node_modules", Path.Combine(t.Root, "other") + Path.DirectorySeparatorChar] }));
+    }
+
+    [Fact]
+    public void FolderRulesMatch()
+    {
+        var sep = Path.DirectorySeparatorChar;
+        var root = OperatingSystem.IsWindows() ? @"C:\Data" : "/data";
+        string P(string rel) => root + sep + rel.Replace('\\', sep);
+        Assert.True(FolderRules.Contains(P(@"proj\.git\objects\x"), [".git"]));
+        Assert.False(FolderRules.Contains(P(@"proj\git\x"), [".git"]));
+        Assert.True(FolderRules.Contains(P(@"Backup\a.bin"), [root + sep + "Backup" + sep]));
+        Assert.True(FolderRules.Contains(P("Backup"), [root + sep + "Backup"]));
+        Assert.False(FolderRules.Contains(P(@"Backups\a.bin"), [root + sep + "Backup" + sep]));
+        Assert.True(FolderRules.Contains(P(@"Backup 2024\a.bin"), [root + sep + "Backup*"]));
+        Assert.True(FolderRules.MatchesFolder(P(@"x\.Trash-1000"), ".Trash-1000", [".Trash-*"]));
+        if (OperatingSystem.IsWindows())
+            Assert.True(FolderRules.Contains(Environment.GetFolderPath(Environment.SpecialFolder.Windows) + @"\System32\x.dll", FolderRules.DefaultProtected));
+    }
+
+    [Fact]
+    public void DuplicatesAcrossScans()
+    {
+        using var a = new TempTree();
+        using var b = new TempTree();
+        var g = ScanGroup.Build([a.Scan(), b.Scan()]);
+        // the trees are the same: every file has a twin, dup1 + dup2 of both are four copies
+        var files = Duplicates.FindFiles(g.Root, new DuplicateOptions());
+        Assert.Equal(4, Assert.Single(files, x => x.Files[0].Name.StartsWith("dup")).Files.Count);
+        Assert.Contains(files, x => x.Files.Count == 2 && x.Files[0].Parent!.Parent != null && x.Files[0].Name == "e.tmp");
+        // the two trees are identical: only their tops are listed
+        var folders = Duplicates.FindFolders(g.Root, new DuplicateOptions { Subsets = false });
+        Assert.Contains(folders, x => x.Folders.Count == 2 && x.Folders.TrueForAll(d => d.Parent == null));
+    }
+
+    [Fact]
+    public void CloneWhereTheDriveCan()
+    {
+        // block cloning needs ReFS / Dev Drive (Windows) or btrfs / XFS (Linux): elsewhere the copy stays and an error is given
+        using var t = new TempTree();
+        var a = Path.Combine(t.Root, "other", "dup1.dat");
+        var b = Path.Combine(t.Root, "other", "dup2.dat");
+        File.SetLastWriteTimeUtc(b, new DateTime(2020, 1, 2, 3, 4, 5, DateTimeKind.Utc));
+        var r = FileOperations.ReplaceWithClones(a, [b]);
+        if (OperatingSystem.IsWindows() && ByteAtlas.Native.FileClone.CanClone(a))
+            Assert.Equal(1, r.Done);
+        Assert.Equal(File.ReadAllBytes(a), File.ReadAllBytes(b));
+        Assert.Empty(Directory.GetFiles(Path.Combine(t.Root, "other"), "*.byteatlas-*"));
+        if (r.Done == 1)
+        {
+            Assert.Equal(new DateTime(2020, 1, 2, 3, 4, 5, DateTimeKind.Utc), File.GetLastWriteTimeUtc(b));
+            // a clone is its own file, but it shares the blocks: not a copy that could be freed
+            Assert.Empty(Duplicates.FindFiles(t.Scan().Root, new DuplicateOptions()));
+        }
+        else
+            Assert.Contains("clone", Assert.Single(r.Errors));
+    }
 }

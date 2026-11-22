@@ -20,6 +20,9 @@ public sealed class ItemRow(Item item, ScanSession? scan, AppSettings s, string?
 
     public string Name => Item.Name;
     public string Path => _path ?? Item.FullPath;
+
+    /// <summary>What screen readers and UI automation are told about the row.</summary>
+    public override string ToString() => $"{Path}, {SizeText}" + (GroupTitle.Length > 0 ? $", group {Group}" : "");
     public string Folder => System.IO.Path.GetDirectoryName(Path) ?? "";
     public long Size => Item.Size;
     public string SizeText => s.Size(Item.Size);
@@ -143,7 +146,7 @@ public static class GridFactory
 
     public static DataGrid Create(IEnumerable<GridColumn> columns)
     {
-        var g = new DataGrid
+        var g = new Controls.AccessibleDataGrid
         {
             IsReadOnly = true,
             CanUserSortColumns = true,
