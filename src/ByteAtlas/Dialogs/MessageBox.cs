@@ -42,8 +42,14 @@ public sealed class MessageBox : DialogWindow
         SetBody(Scroll(grid, 420), ok, cancel);
     }
 
-    public static Task ShowAsync(Window owner, string text, MessageKind kind = MessageKind.Info, string title = "ByteAtlas") =>
-        new MessageBox(title, text, kind, "OK", null).ShowDialog<bool>(owner);
+    public static Task ShowAsync(Window owner, string text, MessageKind kind = MessageKind.Info, string title = "ByteAtlas")
+    {
+        if (kind == MessageKind.Error)
+            Storage.AppLog.Error($"{title}: {text}");
+        else if (kind == MessageKind.Warning)
+            Storage.AppLog.Warn($"{title}: {text}");
+        return new MessageBox(title, text, kind, "OK", null).ShowDialog<bool>(owner);
+    }
 
     public static Task<bool> ConfirmAsync(Window owner, string text, string okText = "OK", string title = "ByteAtlas") =>
         new MessageBox(title, text, MessageKind.Question, okText, "Cancel").ShowDialog<bool>(owner);

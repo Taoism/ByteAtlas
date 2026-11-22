@@ -1,0 +1,34 @@
+{
+  "version": "0.4.0",
+  "description": "Disk space analyzer: size tree, treemap, file types, duplicates, history, exports, CLI",
+  "homepage": "https://github.com/Taoism/ByteAtlas",
+  "license": "MIT",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/Taoism/ByteAtlas/releases/download/v0.4.0/ByteAtlas-0.4.0-win-x64.zip",
+      "hash": "6858a4ffabe92a842d524e56a11aec67ca490d57b26494601bab2f846cb1e583",
+      "extract_dir": "ByteAtlas-0.4.0-win-x64"
+    }
+  },
+  "bin": "byteatlas-cli.exe",
+  "shortcuts": [
+    [
+      "ByteAtlas.exe",
+      "ByteAtlas"
+    ]
+  ],
+  "checkver": {
+    "github": "https://github.com/Taoism/ByteAtlas"
+  },
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/Taoism/ByteAtlas/releases/download/v$version/ByteAtlas-$version-win-x64.zip",
+        "extract_dir": "ByteAtlas-$version-win-x64"
+      }
+    },
+    "hash": {
+      "url": "$baseurl/SHA256SUMS.txt"
+    }
+  }
+}

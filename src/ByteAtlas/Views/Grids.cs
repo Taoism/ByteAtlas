@@ -96,6 +96,22 @@ public sealed class StatItem(StatRow r, AppSettings s, Color color)
     public IBrush Swatch { get; } = new SolidColorBrush(color);
 }
 
+/// <summary>A row of the History tab's "what changed" list.</summary>
+public sealed class GrowthItem(Analysis.GrowthRow r, AppSettings s)
+{
+    public Analysis.GrowthRow Row { get; } = r;
+    public string Folder => Row.Folder.Length == 0 ? "(the whole scan)" : Row.Folder.Replace('/', System.IO.Path.DirectorySeparatorChar);
+    public long Then => Row.Then ?? -1;
+    public string ThenText => Row.Then is { } t ? s.Size(t) : "new / small";
+    public long Now => Row.Node == null ? -1 : Row.Now;
+    public string NowText => Row.Node == null ? "gone" : s.Size(Row.Now);
+    public long Change => Row.Change;
+    public string ChangeText => SizeFormat.FormatChange(Row.Change);
+    public long FilesChange => Row.FilesNow - Row.FilesThen;
+    public string FilesChangeText => Row.Then == null ? "" : (FilesChange > 0 ? "+" : "") + FilesChange.ToString("N0", System.Globalization.CultureInfo.CurrentCulture);
+    public override string ToString() => $"{Folder}, {ChangeText}";
+}
+
 /// <summary>Column definition for <see cref="GridFactory"/>.</summary>
 public sealed record GridColumn(string Header, string Text, string? Sort = null, double Width = 110, bool Right = false, bool Bar = false, bool Swatch = false);
 

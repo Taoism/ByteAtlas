@@ -42,9 +42,14 @@ public sealed class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
+            Dispatcher.UIThread.UnhandledException += (_, e) => Storage.AppLog.Error("Error in the window", e.Exception);
             var settings = AppSettings.Load();
             ApplyTheme(Environment.GetEnvironmentVariable("BYTEATLAS_THEME") is { Length: > 0 } forced ? forced : settings.Theme);
-            desktop.MainWindow = new MainWindow(settings, desktop.Args ?? []);
+            var args = desktop.Args ?? [];
+            // ByteAtlas --notify TITLE MESSAGE [PATH]: a note from the command line tool (scheduled scans)
+            desktop.MainWindow = args.Length >= 3 && args[0] == "--notify"
+                ? new Dialogs.NotifyWindow(args[1], args[2], args.Length > 3 ? args[3] : null)
+                : new MainWindow(settings, args);
         }
         base.OnFrameworkInitializationCompleted();
     }

@@ -154,6 +154,8 @@ public sealed class ScheduleDialog : DialogWindow
     private readonly TextBox _export = new();
     private readonly CheckBox _history = new() { Content = "Add the result to the history", IsChecked = true };
     private readonly CheckBox _index = new() { Content = "Save an index file next to the export (for comparisons)" };
+    private readonly CheckBox _alert = new() { Content = "Warn when the drive has less free space than", IsChecked = true, VerticalAlignment = VerticalAlignment.Center };
+    private readonly TextBox _alertLimit = new() { Text = "10%", Width = 80 };
 
     public ScheduleDialog(string path, AppSettings settings, string? linuxBackend = null) : base("Schedule scan", 560)
     {
@@ -175,6 +177,8 @@ public sealed class ScheduleDialog : DialogWindow
             _export,
             _history,
             _index,
+            Row(8, _alert, _alertLimit),
+            Label("A percentage (10%) or a size (50 GB). The warning is a note in the corner of the screen.", true),
             Label(where, true)), "Create");
     }
 
@@ -188,6 +192,15 @@ public sealed class ScheduleDialog : DialogWindow
         if (string.IsNullOrWhiteSpace(_name.Text) || string.IsNullOrWhiteSpace(_export.Text))
         {
             await MessageBox.ShowAsync(this, "Give a task name and a report file.", MessageKind.Warning, Title ?? "");
+            return false;
+        }
+        var limit = (_alertLimit.Text ?? "").Replace(" ", "");
+        var valid = limit.EndsWith('%')
+            ? double.TryParse(limit.TrimEnd('%'), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var pct) && pct is > 0 and < 100
+            : Model.SizeFormat.TryParse(limit, out var bytes) && bytes > 0;
+        if (_alert.IsChecked == true && !valid)
+        {
+            await MessageBox.ShowAsync(this, "Give the free space limit as a percentage (10%) or a size (50 GB).", MessageKind.Warning, Title ?? "");
             return false;
         }
         return true;
@@ -218,6 +231,8 @@ public sealed class ScheduleDialog : DialogWindow
                 list.Add("--history");
             if (_index.IsChecked == true)
                 list.AddRange(["--save-index", Path.ChangeExtension(export.Length == 0 ? "scan" : export, ".badb")]);
+            if (_alert.IsChecked == true && (_alertLimit.Text ?? "").Trim() is { Length: > 0 } limit)
+                list.AddRange(["--alert-free", limit.Replace(" ", "")]);
             return list;
         }
     }

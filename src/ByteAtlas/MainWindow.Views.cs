@@ -812,7 +812,116 @@ public sealed partial class MainWindow
         }));
         bar.Children.Add(_historyInfo);
         _historyChart.Format = v => _settings.Size(v);
-        return WithOverview(new Border { Classes = { "panel" }, Child = _historyChart }, bar);
+
+        // what changed since an earlier scan, folder by folder
+        _growthGrid = GridFactory.Create([
+            new("Folder", nameof(GrowthItem.Folder), Width: 380),
+            new("Change", nameof(GrowthItem.ChangeText), nameof(GrowthItem.Change), 110, true),
+            new("Then", nameof(GrowthItem.ThenText), nameof(GrowthItem.Then), 110, true),
+            new("Now", nameof(GrowthItem.NowText), nameof(GrowthItem.Now), 110, true),
+            new("Files", nameof(GrowthItem.FilesChangeText), nameof(GrowthItem.FilesChange), 90, true),
+        ]);
+        Avalonia.Automation.AutomationProperties.SetName(_growthGrid, "What changed");
+        Resizing.RememberColumns(_growthGrid, "growth");
+        _growthGrid.DoubleTapped += (_, _) =>
+        {
+            if (_growthGrid.SelectedItem is GrowthItem { Row.Node: { } n })
+                ShowInTree(n);
+        };
+        _growthGrid.SelectionChanged += (_, _) =>
+        {
+            if (_growthGrid.SelectedItem is GrowthItem { Row.Node: { } n })
+                _tree.Mark([n], reveal: true);
+        };
+        _growthSince.MinWidth = 200;
+        Avalonia.Automation.AutomationProperties.SetName(_growthSince, "Compare with the scan of");
+        _growthSince.SelectionChanged += (_, _) =>
+        {
+            if (!_fillingGrowth)
+                ShowGrowth();
+        };
+        _growthDeepest.IsCheckedChanged += (_, _) => ShowGrowth();
+        ToolTip.SetTip(_growthDeepest, "Leave out a folder when one of its sub folders changed by (nearly) as much: the list names where it happened");
+        var growthBar = new WrapPanel { Orientation = Orientation.Horizontal, ItemSpacing = 6, Margin = new Thickness(0, 0, 0, 4) };
+        growthBar.Children.Add(new TextBlock { Text = "What changed since", VerticalAlignment = VerticalAlignment.Center, Classes = { "header" } });
+        growthBar.Children.Add(_growthSince);
+        growthBar.Children.Add(_growthDeepest);
+        growthBar.Children.Add(_growthInfo);
+        var growth = new DockPanel();
+        DockPanel.SetDock(growthBar, Dock.Top);
+        growth.Children.Add(growthBar);
+        growth.Children.Add(_growthGrid);
+
+        var split = new Grid { RowDefinitions = new RowDefinitions("*,6,*") };
+        split.Children.Add(new Border { Classes = { "panel" }, Child = _historyChart });
+        Resizing.Split(split, 1, 0, columns: false, "history.chart");
+        Grid.SetRow(growth, 2);
+        split.Children.Add(growth);
+        return WithOverview(split, bar);
+    }
+
+    private DataGrid _growthGrid = null!;
+    private readonly ComboBox _growthSince = new();
+    private readonly CheckBox _growthDeepest = new() { Content = "Only where it happened", IsChecked = true, VerticalAlignment = VerticalAlignment.Center };
+    private readonly TextBlock _growthInfo = new() { Classes = { "muted" }, VerticalAlignment = VerticalAlignment.Center };
+    private bool _fillingGrowth;
+    private List<DateTime> _growthDates = [];
+    private ScanSession? _growthScan;
+
+    /// <summary>Fills the snapshot list for the scan shown (newest first, the scan itself left out).</summary>
+    private void UpdateGrowthDates(ScanSession s)
+    {
+        List<DateTime> dates;
+        try
+        {
+            dates = s.IsGroup ? [] : _history.Snapshots(s.Root.FullPath);
+        }
+        catch (Exception e) when (e is IOException or Microsoft.Data.Sqlite.SqliteException)
+        {
+            dates = [];
+        }
+        // the snapshot of this very scan shows no change
+        dates.RemoveAll(d => Math.Abs((d - s.ScanDate).TotalSeconds) < 2);
+        var same = ReferenceEquals(_growthScan, s) && dates.SequenceEqual(_growthDates);
+        _growthScan = s;
+        _growthDates = dates;
+        if (same)
+        {
+            ShowGrowth();
+            return;
+        }
+        _fillingGrowth = true;
+        _growthSince.ItemsSource = dates.Select(d => d.ToString("g", System.Globalization.CultureInfo.CurrentCulture)).ToList();
+        _growthSince.SelectedIndex = dates.Count > 0 ? 0 : -1;
+        _fillingGrowth = false;
+        ShowGrowth();
+    }
+
+    private void ShowGrowth()
+    {
+        if (_growthScan is not { } s || s.IsGroup)
+        {
+            _growthGrid.ItemsSource = null;
+            _growthInfo.Text = "Select a scan.";
+            return;
+        }
+        if (_growthSince.SelectedIndex < 0 || _growthSince.SelectedIndex >= _growthDates.Count)
+        {
+            _growthGrid.ItemsSource = null;
+            _growthInfo.Text = "Folder sizes are kept with each scan from now on: the next scan of this folder shows what changed.";
+            return;
+        }
+        try
+        {
+            var then = _history.Folders(s.Root.FullPath, _growthDates[_growthSince.SelectedIndex]);
+            var rows = Growth.Compare(s.Root, then, _growthDeepest.IsChecked == true);
+            _growthGrid.ItemsSource = rows.Select(r => new GrowthItem(r, _settings)).ToList();
+            _growthInfo.Text = rows.Count == 0 ? "No folder changed." : $"{rows.Count:N0} folders  ·  total {SizeFormat.FormatChange(s.Root.Size - (then.TryGetValue("", out var root) ? root.Size : s.Root.Size))}";
+        }
+        catch (Exception e) when (e is IOException or Microsoft.Data.Sqlite.SqliteException)
+        {
+            _growthInfo.Text = "History not readable: " + e.Message;
+        }
     }
 
     private void UpdateHistory(ScanSession s)
@@ -822,6 +931,7 @@ public sealed partial class MainWindow
             _historyChart.Title = "Select a scan to see its history";
             _historyChart.SetData([]);
             _historyInfo.Text = "";
+            UpdateGrowthDates(s);
             return;
         }
         List<HistoryPoint> pts;
@@ -844,6 +954,7 @@ public sealed partial class MainWindow
             series.Add(new("Free on drive", Palette.At(2), [.. pts.Where(p => p.VolumeTotal > 0).Select(p => (p.At, p.VolumeFree))]));
         _historyChart.SetData(series);
         _historyInfo.Text = pts.Count == 0 ? "" : $"{pts.Count} scans since {pts[0].At:d}  ·  data file {_history.File}";
+        UpdateGrowthDates(s);
     }
 
     private async Task PurgeHistoryAsync()

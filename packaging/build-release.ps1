@@ -7,6 +7,7 @@
     byteatlas-<v>-1.x86_64.rpm          Fedora / RHEL
     ByteAtlas-<v>-linux-x64.tar.gz      Linux portable
     SHA256SUMS.txt
+    packaging\winget\<v>\*.yaml, bucket\byteatlas.json   winget / Scoop manifests
   Every package has the app (ByteAtlas) and the command-line tool (byteatlas-cli), self-contained.
   The Linux packages are made in WSL (packaging/package-linux.sh: dpkg-deb, rpmbuild in a Fedora container).
 #>
@@ -68,5 +69,8 @@ Get-ChildItem -File | Where-Object Name -ne 'SHA256SUMS.txt' | Sort-Object Name 
     '{0}  {1}' -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant(), $_.Name
 } | Set-Content SHA256SUMS.txt -Encoding ascii
 Pop-Location
+
+# winget + Scoop manifests (point at the GitHub release of this version)
+& (Join-Path $PSScriptRoot 'make-manifests.ps1') -Version $version
 
 Get-ChildItem $release | Format-Table Name, @{ n = 'MB'; e = { [math]::Round($_.Length / 1MB, 1) } } -AutoSize

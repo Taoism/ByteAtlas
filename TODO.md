@@ -101,13 +101,22 @@ clean-room, open source. Version 0.1.0 (2026-11-21).
 - `byteatlas-cli duplicates <paths…>` (--folders, --match, --hash, --min-size, --ignore, --cache, --export).
 - Result grids can be read and selected through UI automation (Value pattern: "3,5", "3-7", "all"); a selected
   duplicate group is scrolled to in the tree without changing the tree selection.
+- Update check: once a day (Options › Updates) one request to the GitHub releases API; a newer version shows a
+  button in the status bar (notes, download page, skip this version); Help › Check for updates;
+  `byteatlas-cli version --check` (exit code 3). Nothing is downloaded or installed.
+- winget + Scoop manifests made by build-release.ps1 (packaging\make-manifests.ps1; Scoop bucket in bucket\ of
+  this repo). Scoop manifest tested in Windows Sandbox (install, shim, shortcut, uninstall); winget validate OK.
+- History › "What changed since": each history entry keeps the folder sizes (down to 6 levels, ≥ 1 MB and 1/2000
+  of the scan, at most 20,000); the list shows the folders that grew / shrank most, "only where it happened"
+  leaves out parents explained by one sub folder; gone and new folders included.
+- Low-space alerts: `scan --alert-free 10%|50GB` (exit code 4, note in the corner of the screen via
+  "ByteAtlas --notify", notify-send on Linux desktops); Schedule dialog option (default 10 %).
+- Log file per day (logs\byteatlas-<date>.log next to the history, 14 days): scans with timings and errors,
+  error / warning messages, crashes, command line runs (addresses without user names or tokens);
+  Help › Open log folder.
 
 ## Open
-- [ ] Update check (GitHub releases) + winget / Scoop manifests.
-- [ ] "What grew" view: folders that grew most since the last history snapshot.
-- [ ] Low-space alerts from scheduled scans (desktop notification below a threshold).
-- [ ] GUI log file (errors, scan timings).
-- [ ] Release 0.5.0.
+- [ ] Release 0.5.0; submit the winget manifest (packaging\winget\0.5.0) to microsoft/winget-pkgs (ask first).
 - [ ] Later: similar images / audio; memory + speed pass for 10 M+ file scans.
 - [ ] Chart colours per file type: every extension / file group gets its own colour in the treemap, pie and bar
       charts, with a legend, editable colours (Options), the same colour for a type everywhere in the app.

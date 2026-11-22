@@ -748,3 +748,82 @@ public class DuplicateTabTests
             Assert.Contains("clone", Assert.Single(r.Errors));
     }
 }
+
+public class UpdateCheckTests
+{
+    [Theory]
+    [InlineData("v0.4.0", "0.4.0")]
+    [InlineData("0.5", "0.5.0")]
+    [InlineData("v1.2.3-beta", "1.2.3")]
+    [InlineData("V2", "2.0.0")]
+    public void VersionsParsed(string tag, string expected) => Assert.Equal(Version.Parse(expected), UpdateCheck.ParseVersion(tag));
+
+    [Fact]
+    public void ReleaseParsed()
+    {
+        using var doc = System.Text.Json.JsonDocument.Parse("""
+            {"tag_name":"v99.1.0","html_url":"https://github.com/Taoism/ByteAtlas/releases/tag/v99.1.0","body":"notes","published_at":"2026-11-22T10:00:00Z"}
+            """);
+        var r = UpdateCheck.Parse(doc.RootElement)!;
+        Assert.Equal(new Version(99, 1, 0), r.Version);
+        Assert.True(UpdateCheck.IsNewer(r));
+        Assert.Equal("notes", r.Notes);
+        Assert.Equal(new DateTime(2026, 11, 22, 10, 0, 0, DateTimeKind.Utc), r.Published);
+        Assert.Null(UpdateCheck.ParseVersion("nightly"));
+    }
+}
+
+public class GrowthTests
+{
+    [Fact]
+    public void WhatGrewNamesTheDeepestFolder()
+    {
+        using var t = new TempTree();
+        t.Write(@"data\logs\big.log", 3 << 20, seed: 1);
+        t.Write(@"data\keep.bin", 2 << 20, seed: 2);
+        t.Write(@"old\gone.bin", 2 << 20, seed: 3);
+        var before = HistoryStore.Snapshot(t.Scan().Root).ToDictionary(f => f.Folder, StringComparer.OrdinalIgnoreCase);
+        Assert.True(before.ContainsKey("data/logs"));
+
+        t.Write(@"data\logs\more.log", 4 << 20, seed: 4); // data/logs grows by 4 MB, data only through it
+        Directory.Delete(Path.Combine(t.Root, "old"), true);
+        var now = t.Scan().Root;
+
+        var deepest = Growth.Compare(now, before);
+        Assert.Equal("data/logs", deepest[0].Folder);
+        Assert.Equal(4 << 20, deepest[0].Change);
+        Assert.DoesNotContain(deepest, r => r.Folder == "data"); // explained by data/logs
+        var gone = Assert.Single(deepest, r => r.Folder == "old");
+        Assert.Null(gone.Node);
+        Assert.Equal(-(2 << 20), gone.Change);
+
+        var all = Growth.Compare(now, before, deepest: false);
+        Assert.Contains(all, r => r.Folder == "data" && r.Change == 4 << 20);
+        Assert.Contains(all, r => r.Folder == "" && r.Change == (2 << 20));
+    }
+
+    [Fact]
+    public void SnapshotsStoredWithHistory()
+    {
+        using var t = new TempTree();
+        t.Write(@"data\big.bin", 2 << 20);
+        var db = Path.Combine(Path.GetTempPath(), "byteatlas-hist-" + Guid.NewGuid().ToString("N")[..8] + ".db");
+        try
+        {
+            var h = new HistoryStore(db);
+            var s = t.Scan();
+            h.Record(s);
+            var at = Assert.Single(h.Snapshots(t.Root));
+            var folders = h.Folders(t.Root, at);
+            Assert.Equal(s.Root.Size, folders[""].Size);
+            Assert.True(folders.ContainsKey("data"));
+            Assert.Equal(1, h.Purge(t.Root, DateTime.Now.AddDays(1)));
+            Assert.Empty(h.Snapshots(t.Root));
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            File.Delete(db);
+        }
+    }
+}

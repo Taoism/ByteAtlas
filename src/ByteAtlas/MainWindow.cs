@@ -214,17 +214,73 @@ public sealed partial class MainWindow : Window
         }
         if (paths.Count == 0)
             SetStatus("Choose a drive on the left or type a path and press Scan.");
+        if (_settings.CheckForUpdates && DateTime.UtcNow - _settings.LastUpdateCheck > TimeSpan.FromDays(1))
+            _ = CheckForUpdatesAsync(manual: false);
     }
+
+    private readonly Button _update = new() { IsVisible = false, Padding = new Thickness(8, 0), VerticalAlignment = VerticalAlignment.Center };
 
     private Grid StatusGrid()
     {
-        var g = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto"), ColumnSpacing = 12 };
+        var g = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto,Auto"), ColumnSpacing = 12 };
         g.Children.Add(_status);
         Grid.SetColumn(_progress, 1);
         g.Children.Add(_progress);
-        Grid.SetColumn(_statusRight, 2);
+        Grid.SetColumn(_update, 2);
+        g.Children.Add(_update);
+        Grid.SetColumn(_statusRight, 3);
         g.Children.Add(_statusRight);
         return g;
+    }
+
+    private Operations.ReleaseInfo? _newRelease;
+
+    /// <summary>Looks for a newer release; quietly (status bar button) at start, with an answer when asked.</summary>
+    private async Task CheckForUpdatesAsync(bool manual)
+    {
+        Operations.ReleaseInfo? r;
+        try
+        {
+            r = await Operations.UpdateCheck.LatestAsync();
+            _settings.LastUpdateCheck = DateTime.UtcNow;
+        }
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
+        {
+            if (manual)
+                await Dialogs.MessageBox.ShowAsync(this, "Could not ask GitHub for the latest version: " + e.Message, Dialogs.MessageKind.Warning, "Updates");
+            return;
+        }
+        if (r == null || !Operations.UpdateCheck.IsNewer(r))
+        {
+            if (manual)
+                await Dialogs.MessageBox.ShowAsync(this, $"ByteAtlas {Operations.UpdateCheck.Current.ToString(3)} is the latest version.", Dialogs.MessageKind.Info, "Updates");
+            return;
+        }
+        _newRelease = r;
+        _update.Content = $"Version {r.Version.ToString(3)} is available";
+        Avalonia.Automation.AutomationProperties.SetName(_update, _update.Content as string);
+        _update.Click -= UpdateClicked;
+        _update.Click += UpdateClicked;
+        // a skipped version is only shown again when asked for
+        _update.IsVisible = manual || r.Version.ToString(3) != _settings.SkippedVersion;
+        if (manual)
+            await ShowUpdateAsync();
+    }
+
+    private async void UpdateClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => await ShowUpdateAsync();
+
+    private async Task ShowUpdateAsync()
+    {
+        if (_newRelease is not { } r)
+            return;
+        var choice = await Dialogs.UpdateDialog.AskAsync(this, r);
+        if (choice == Dialogs.UpdateChoice.Download)
+            Shell.Open(r.Url);
+        else if (choice == Dialogs.UpdateChoice.Skip)
+        {
+            _settings.SkippedVersion = r.Version.ToString(3);
+            _update.IsVisible = false;
+        }
     }
 
     private void SetStatus(string text) => _status.Text = text;
@@ -638,6 +694,12 @@ public sealed partial class MainWindow : Window
         var help = Sub("_Help",
             Item("_Read me (online)", () => Shell.Open("https://github.com/Taoism/ByteAtlas#readme")),
             Item("_Keyboard shortcuts", () => _ = Dialogs.MessageBox.ShowAsync(this, Shortcuts, title: "Keyboard shortcuts")),
+            Item("Check for _updates…", () => CheckForUpdatesAsync(manual: true)),
+            Item("Open _log folder", () =>
+            {
+                Directory.CreateDirectory(Storage.AppLog.Folder);
+                Shell.Open(Storage.AppLog.Folder);
+            }),
             Item("_About ByteAtlas", () => _ = new Dialogs.AboutDialog().ShowDialog(this)));
 
         var m = new Menu();

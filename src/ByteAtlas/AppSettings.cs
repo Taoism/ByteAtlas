@@ -80,6 +80,11 @@ public sealed class AppSettings
     public bool DuplicateSubsets { get; set; } = true;
     public string DuplicateKeep { get; set; } = "Oldest";
     public bool DuplicateAllScans { get; set; }
+
+    /// <summary>Ask GitHub once a day whether a newer release exists (nothing is downloaded).</summary>
+    public bool CheckForUpdates { get; set; } = true;
+    public DateTime LastUpdateCheck { get; set; }
+    public string SkippedVersion { get; set; } = "";
     public bool DuplicateRememberChecksums { get; set; } = true;
 
     /// <summary>Never selected by "Select the other copies", never deleted / linked / moved from the duplicate tabs.</summary>

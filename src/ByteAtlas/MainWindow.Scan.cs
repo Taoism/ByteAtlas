@@ -186,12 +186,28 @@ public sealed partial class MainWindow
         UpdateViews(force: true);
         _drives.Refresh();
         SetStatus(ScanSummary(s));
+        LogScan(s);
         SaveCache(s);
         UpdateWatchers();
         if (_settings.ShowErrorsAfterScan && !s.Errors.IsEmpty)
             _ = ShowErrorsAsync();
         if (_settings.NotifyWhenDone && !IsActive && s.State == ScanState.Done)
             Activate();
+    }
+
+    private void LogScan(ScanSession s)
+    {
+        var line = ScanSummary(s).Replace("  ·  ", ", ").Replace(" (Scan › Show all errors)", "");
+        if (s.Timings.Length > 0)
+            line += " | " + s.Timings;
+        if (s.State == ScanState.Failed)
+            Storage.AppLog.Error(line);
+        else
+            Storage.AppLog.Info(line);
+        foreach (var e in s.Errors.Take(10))
+            Storage.AppLog.Warn($"  {e.Path}: {e.Message}");
+        if (s.Errors.Count > 10)
+            Storage.AppLog.Warn($"  … {s.Errors.Count - 10} more errors");
     }
 
     private string ScanSummary(ScanSession s)

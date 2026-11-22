@@ -19,9 +19,11 @@ internal static class CliApp
             Console.WriteLine(Help);
             return 0;
         }
+        var sw = Stopwatch.StartNew();
+        int code;
         try
         {
-            return args[0] switch
+            code = args[0] switch
             {
                 "scan" => await ScanAsync(args[1..]),
                 "compare" => await CompareAsync(args[1..]),
@@ -29,14 +31,39 @@ internal static class CliApp
                 "duplicates" or "dup" => await DuplicatesAsync(args[1..]),
                 "history" => History(args[1..]),
                 "schedule" => Schedule(args[1..]),
-                "--version" or "version" => Version(),
+                "--version" or "version" => await VersionAsync(args[1..]),
                 _ => Fail($"Unknown command '{args[0]}'. Run byteatlas-cli --help."),
             };
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException or InvalidDataException or FormatException or Microsoft.Data.Sqlite.SqliteException)
         {
-            return Fail(e.Message);
+            code = Fail(e.Message);
         }
+        // scheduled runs have nobody watching the console: what ran and how it ended goes to the log
+        if (args[0] is "scan" or "duplicates" or "dup" or "compare" or "search")
+        {
+            var line = $"byteatlas-cli {args[0]} {(args.Length > 1 ? Redact(args[1]) : "")}: exit {code}, {sw.Elapsed.TotalSeconds:N1} s" + (_lastError is { } err ? " - " + err : "");
+            if (code is 1 or 2)
+                AppLog.Warn(line);
+            else
+                AppLog.Info(line);
+        }
+        return code;
+    }
+
+    private static string? _lastError;
+
+    /// <summary>A path or address for the log: no user names, passwords or tokens (SAS, query strings).</summary>
+    internal static string Redact(string path)
+    {
+        var q = path.IndexOf('?');
+        if (q >= 0)
+            path = path[..q] + "?…";
+        var scheme = path.IndexOf("://", StringComparison.Ordinal);
+        var at = path.IndexOf('@');
+        if (scheme >= 0 && at > scheme)
+            path = path[..(scheme + 3)] + "…@" + path[(at + 1)..];
+        return path;
     }
 
     private const string Help = """
@@ -60,6 +87,8 @@ internal static class CliApp
             --top-files N FILE        write the N largest files
             --verbose                 show where the scan time went
             --cache DIR               keep the scan in DIR; next time load it and refresh only what changed
+            --alert-free LIMIT        warn (desktop note, exit code 4) when the drive has less free space
+                                      than LIMIT: a percentage (10%) or a size (50GB)
 
           Remote sources (path given as an address instead of a folder):
             ssh://user@host[:port]/path   Linux / Unix server over SSH (needs GNU find); ~/x = home folder
@@ -93,13 +122,15 @@ internal static class CliApp
             --top N                   groups printed (default 30)
             --export FILE             write all groups: .xlsx .pdf .html .csv .txt (repeatable)
           byteatlas-cli history <path> [--export FILE.csv]
+          byteatlas-cli version [--check]   --check: ask GitHub for a newer release (exit code 3 when there is one)
 
           byteatlas-cli schedule list | remove NAME
           byteatlas-cli schedule add NAME daily|weekly|monthly|logon [HH:MM] [--day mon..sun] -- scan <path> [options]
                                     Linux: a systemd user timer, else a crontab line, running this byteatlas-cli
                                     (Windows: use the app, Scan › Schedule this scan, or schtasks)
 
-        Exit codes: 0 ok, 1 error, 2 scan finished with errors / stopped.
+        Exit codes: 0 ok, 1 error, 2 scan finished with errors / stopped, 3 a newer version exists (version --check),
+        4 less free space than --alert-free.
         """;
 
     private static Remote.RemoteSpec RemoteOnly(Remote.RemoteSpec? remote, string option) =>
@@ -125,13 +156,29 @@ internal static class CliApp
     private static int Fail(string message)
     {
         Console.Error.WriteLine("error: " + message);
+        _lastError = message;
         return 1;
     }
 
-    private static int Version()
+    private static async Task<int> VersionAsync(string[] a)
     {
-        Console.WriteLine("byteatlas-cli " + typeof(CliApp).Assembly.GetName().Version?.ToString(3));
-        return 0;
+        Console.WriteLine("byteatlas-cli " + UpdateCheck.Current.ToString(3));
+        if (!a.Contains("--check"))
+            return 0;
+        try
+        {
+            if (await UpdateCheck.LatestAsync() is { } r && UpdateCheck.IsNewer(r))
+            {
+                Console.WriteLine($"version {r.Version.ToString(3)} is available: {r.Url}");
+                return 3;
+            }
+            Console.WriteLine("this is the latest version");
+            return 0;
+        }
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
+        {
+            return Fail("could not ask GitHub: " + e.Message);
+        }
     }
 
     private static string Expand(string path) =>
@@ -181,6 +228,7 @@ internal static class CliApp
         var remote = Remote.RemoteSpec.Parse(a[0]);
         var passwordEnv = "BYTEATLAS_PASSWORD";
         var forgetHost = false;
+        (double Percent, long Bytes)? alertFree = null;
         for (var i = 1; i < a.Length; i++)
         {
             string Next() => i + 1 < a.Length ? a[++i] : throw new ArgumentException($"{a[i]} needs a value");
@@ -259,6 +307,9 @@ internal static class CliApp
                     break;
                 case "--ages":
                     ageFile = Next();
+                    break;
+                case "--alert-free":
+                    alertFree = ParseLimit(Next());
                     break;
                 case "--top-files":
                     topFiles = int.Parse(Next(), CultureInfo.InvariantCulture);
@@ -357,7 +408,34 @@ internal static class CliApp
             new HistoryStore().Record(s);
             Console.WriteLine("history updated");
         }
+        if (alertFree is { } limit && s.State == ScanState.Done && LowSpace(s, limit) is { } warning)
+        {
+            await Console.Error.WriteLineAsync("warning: " + warning);
+            _lastError = warning;
+            Notifier.Show("Running out of space", warning, s.Root.FullPath);
+            return 4;
+        }
         return s.State == ScanState.Done && s.Errors.IsEmpty ? 0 : 2;
+    }
+
+    /// <summary>"10%" or "50GB".</summary>
+    internal static (double Percent, long Bytes) ParseLimit(string s) => s.EndsWith('%')
+        ? (double.Parse(s.TrimEnd('%'), CultureInfo.InvariantCulture), 0)
+        : (0, SizeFormat.TryParse(s, out var b) && b > 0 ? b : throw new FormatException("--alert-free takes a percentage (10%) or a size (50GB)"));
+
+    /// <summary>The warning when the drive of the scan has less free space than the limit, else null.</summary>
+    internal static string? LowSpace(ScanSession s, (double Percent, long Bytes) limit)
+    {
+        if (s.VolumeTotal <= 0)
+            return null;
+        var percent = s.VolumeFree * 100.0 / s.VolumeTotal;
+        if (limit.Bytes > 0 ? s.VolumeFree >= limit.Bytes : percent >= limit.Percent)
+            return null;
+        var drive = Path.GetPathRoot(s.Root.FullPath) is { Length: > 0 } r ? r : s.Root.FullPath;
+        var below = limit.Bytes > 0 ? SizeFormat.Format(limit.Bytes) : limit.Percent.ToString(CultureInfo.CurrentCulture) + " %";
+        var largest = string.Join(", ", s.Root.Dirs.Where(d => d.Size > 0).Take(3).Select(d => $"{d.Name} {SizeFormat.Format(d.Size)}"));
+        return string.Create(CultureInfo.CurrentCulture, $"{drive} has {SizeFormat.Format(s.VolumeFree)} free ({percent:N1} %), less than {below}.")
+            + (largest.Length > 0 ? $" Largest in {s.Root.FullPath}: {largest}." : "");
     }
 
     private static async Task<int> CompareAsync(string[] a)

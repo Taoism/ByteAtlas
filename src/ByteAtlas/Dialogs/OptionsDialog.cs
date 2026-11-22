@@ -148,7 +148,10 @@ public sealed class OptionsDialog : DialogWindow
         Check("Update the views while scanning", _s.UpdateDuringScan, v => _s.UpdateDuringScan = v),
         Check("Show the error list after a scan with errors", _s.ShowErrorsAfterScan, v => _s.ShowErrorsAfterScan = v),
         Check("Bring the window to the front when a scan finishes", _s.NotifyWhenDone, v => _s.NotifyWhenDone = v),
-        Number("Entries in \"Recently scanned\":", _s.RecentMax, 0, 50, v => _s.RecentMax = (int)v));
+        Number("Entries in \"Recently scanned\":", _s.RecentMax, 0, 50, v => _s.RecentMax = (int)v),
+        H("Updates"),
+        Check("Look for a new version once a day", _s.CheckForUpdates, v => _s.CheckForUpdates = v,
+            "Asks GitHub for the latest ByteAtlas release; nothing about this computer is sent and nothing is downloaded"));
 
     private StackPanel TreePage() => PageOf(
         H("Directory tree"),
