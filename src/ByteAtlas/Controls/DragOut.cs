@@ -37,7 +37,7 @@ internal static class DragOut
             var d = e.GetPosition(control) - start;
             if (Math.Abs(d.X) < 8 && Math.Abs(d.Y) < 8)
                 return;
-            var list = paths();
+            var list = paths().Where(p => !Shell.IsRemote(p)).ToList();
             if (list.Count == 0 || TopLevel.GetTopLevel(control)?.StorageProvider is not { } sp)
                 return;
             dragging = true;

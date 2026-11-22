@@ -92,6 +92,9 @@ public sealed class AppSettings
     public List<string> Recent { get; set; } = [];
     public int RecentMax { get; set; } = 12;
     public List<string> ExtraDrives { get; set; } = [];
+
+    /// <summary>Remote sources kept by the user (SSH, S3, Azure, WebDAV, disk images).</summary>
+    public List<Dialogs.SavedRemote> Remotes { get; set; } = [];
     public List<string> HiddenDrives { get; set; } = [];
     public bool AlwaysAdmin { get; set; }
     public string HistoryFile { get; set; } = "";

@@ -23,7 +23,7 @@ public sealed partial class MainWindow : Window
     private readonly SizeTree _tree;
     private readonly DriveListPanel _drives;
     private readonly TabControl _tabs = new();
-    private readonly TextBox _pathBox = new() { PlaceholderText = "Drive, folder or \\\\server\\share to scan", MinWidth = 260 };
+    private readonly TextBox _pathBox = new() { PlaceholderText = "Drive, folder, \\\\server\\share, ssh://…, s3://… or disk image", MinWidth = 300 };
     private readonly TextBlock _status = new() { VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
     private readonly TextBlock _statusRight = new() { VerticalAlignment = VerticalAlignment.Center, Classes = { "muted" } };
     private readonly Border _statusBar;
@@ -73,7 +73,7 @@ public sealed partial class MainWindow : Window
         _tree.RowActivated += (_, r) =>
         {
             if (r.Kind == RowKind.File)
-                Shell.Open(r.Item.FullPath);
+                Shell.OpenItem(r.Item.FullPath);
             else
                 _tree.Toggle(r);
         };
@@ -172,7 +172,11 @@ public sealed partial class MainWindow : Window
 
         AddKeyBindings();
         Opened += (_, _) => OnOpened();
-        Closing += (_, _) => SaveWindowState();
+        Closing += (_, _) =>
+        {
+            SaveWindowState();
+            DismountAllImages();
+        };
     }
 
     private void OnOpened()
@@ -278,8 +282,9 @@ public sealed partial class MainWindow : Window
                 _pathBox.Text = p;
                 StartScan(p);
             }
-        });
-        ToolTip.SetTip(browse, "Choose a folder");
+        }, "Choose a folder");
+        var remote = IconButton(Icons.Server, null, () => ScanRemoteDialogAsync(), "Scan a remote source or disk image (SSH, S3, Azure, WebDAV, VHDX / ISO)");
+        Avalonia.Automation.AutomationProperties.SetName(_pathBox, "Path to scan");
         var scan = ToolButton("Scan", () => StartScan(_pathBox.Text?.Trim() ?? ""));
         scan.Content = Icons.Content(Icons.Play, "Scan");
         if (scan.Content is StackPanel sp && sp.Children[0] is Avalonia.Controls.Shapes.Path play)
@@ -305,6 +310,7 @@ public sealed partial class MainWindow : Window
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
         row.Children.Add(_pathBox);
         row.Children.Add(browse);
+        row.Children.Add(remote);
         row.Children.Add(scan);
         row.Children.Add(Sep());
         row.Children.Add(IconButton(Icons.Stop, "Stop", StopSelected, "Stop the selected scan (Esc)"));
@@ -343,7 +349,7 @@ public sealed partial class MainWindow : Window
     {
         var b = ToolButton(text ?? "", action, tip ?? text);
         b.Content = Icons.Content(icon, text);
-        Avalonia.Automation.AutomationProperties.SetName(b, text ?? tip ?? icon);
+        Avalonia.Automation.AutomationProperties.SetName(b, text ?? tip ?? "");
         return b;
     }
 
@@ -351,7 +357,7 @@ public sealed partial class MainWindow : Window
     {
         var b = ToolButton(text ?? "", action, tip ?? text);
         b.Content = Icons.Content(icon, text);
-        Avalonia.Automation.AutomationProperties.SetName(b, text ?? tip ?? icon);
+        Avalonia.Automation.AutomationProperties.SetName(b, text ?? tip ?? "");
         return b;
     }
 
@@ -376,14 +382,14 @@ public sealed partial class MainWindow : Window
 
     private static MenuItem Item(string header, Action action, KeyGesture? key = null)
     {
-        var mi = new MenuItem { Header = header, InputGesture = key };
+        var mi = new MenuItem { Header = header, InputGesture = key, HotKey = key };
         mi.Click += (_, _) => action();
         return mi;
     }
 
     private static MenuItem Item(string header, Func<Task> action, KeyGesture? key = null)
     {
-        var mi = new MenuItem { Header = header, InputGesture = key };
+        var mi = new MenuItem { Header = header, InputGesture = key, HotKey = key };
         mi.Click += async (_, _) => await action();
         return mi;
     }
@@ -427,6 +433,7 @@ public sealed partial class MainWindow : Window
                 if (p != null)
                     StartScan(p);
             }, new KeyGesture(Key.O, KeyModifiers.Control)),
+            Item("Scan _remote source or disk image…", () => ScanRemoteDialogAsync(), new KeyGesture(Key.O, KeyModifiers.Control | KeyModifiers.Shift)),
             _scanDriveMenu,
             _recentMenu,
             new Separator(),

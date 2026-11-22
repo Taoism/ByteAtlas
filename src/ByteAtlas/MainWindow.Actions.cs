@@ -40,8 +40,9 @@ public sealed partial class MainWindow
         return m;
     }
 
-    private ContextMenu ItemContextMenu(Func<List<Item>> items)
+    private ContextMenu ItemContextMenu(Func<List<Item>> selection)
     {
+        List<Item> items() => LocalOnly(selection());
         List<string> Paths() => [.. items().Select(i => i.FullPath)];
         var m = new ContextMenu();
         if (OperatingSystem.IsWindows())
@@ -61,7 +62,7 @@ public sealed partial class MainWindow
         m.Items.Add(Item("Open", () =>
         {
             foreach (var p in Paths().Take(10))
-                Shell.Open(p);
+                Shell.OpenItem(p);
         }));
         m.Items.Add(Item("Show in Explorer", () =>
         {
@@ -129,18 +130,23 @@ public sealed partial class MainWindow
         }, Avalonia.Threading.DispatcherPriority.Background);
     }
 
-    private List<string> SelectedPaths()
-    {
-        if (_tabs.SelectedIndex == 1 && _details.SelectedItems.Count > 0)
-            return [.. _details.SelectedItems.OfType<ItemRow>().Select(r => r.Path)];
-        return [.. _tree.SelectedRows.Where(r => r.Kind != RowKind.FilesGroup).Select(r => r.Item.FullPath)];
-    }
+    private List<string> SelectedPaths() => [.. SelectedItemsForAction().Select(i => i.FullPath)];
 
+    /// <summary>The selected files / folders on this computer (items of remote scans cannot be changed from here).</summary>
     private List<Item> SelectedItemsForAction()
     {
-        if (_tabs.SelectedIndex == 1 && _details.SelectedItems.Count > 0)
-            return [.. _details.SelectedItems.OfType<ItemRow>().Select(r => r.Item)];
-        return [.. _tree.SelectedRows.Where(r => r.Kind != RowKind.FilesGroup).Select(r => r.Item)];
+        List<Item> items = _tabs.SelectedIndex == 1 && _details.SelectedItems.Count > 0
+            ? [.. _details.SelectedItems.OfType<ItemRow>().Select(r => r.Item)]
+            : [.. _tree.SelectedRows.Where(r => r.Kind != RowKind.FilesGroup).Select(r => r.Item)];
+        return LocalOnly(items);
+    }
+
+    private List<Item> LocalOnly(List<Item> items)
+    {
+        var local = items.Where(i => !Shell.IsRemote(i.FullPath)).ToList();
+        if (local.Count < items.Count)
+            SetStatus("Items of remote sources (SSH, S3, Azure, WebDAV) are read-only here: scans, statistics and reports work for them.");
+        return local;
     }
 
     // ---------------- file actions ----------------

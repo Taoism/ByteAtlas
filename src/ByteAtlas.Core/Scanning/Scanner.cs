@@ -105,8 +105,9 @@ public static class Scanner
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidOperationException or HttpRequestException or ArgumentException or System.Xml.XmlException or Renci.SshNet.Common.SshException)
         {
-            s.AddError(s.Path, e.Message);
-            s.Root.Error = e.Message;
+            var message = e is HttpRequestException { InnerException: { } inner } ? $"{e.Message.Split(',')[0]}: {inner.Message}" : e.Message;
+            s.AddError(s.Path, message);
+            s.Root.Error = message;
             Finish(s);
             s.State = ScanState.Failed;
         }
@@ -298,9 +299,10 @@ public static class Scanner
 
     public static void Refresh(ScanSession s, DirNode node, bool recursive, CancellationToken ct)
     {
-        if (node.Parent == null && recursive)
+        if (node.Parent == null && recursive || s.Remote != null)
         {
-            node.ClearChildren();
+            // remote sources are listed in one pass: a sub folder refresh reads everything again
+            s.Root.ClearChildren();
             Scan(s, ct);
             return;
         }

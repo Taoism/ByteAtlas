@@ -65,10 +65,12 @@ public abstract class Item
             parts.Reverse();
             var root = parts[0];
             var sb = new System.Text.StringBuilder(root);
+            // remote sources (ssh://, s3://, azure:https://, http://) use / below their address
+            var sep = root.Contains("://", StringComparison.Ordinal) ? '/' : Path.DirectorySeparatorChar;
             for (var k = 1; k < parts.Count; k++)
             {
                 if (sb.Length > 0 && sb[^1] != '\\' && sb[^1] != '/')
-                    sb.Append(Path.DirectorySeparatorChar);
+                    sb.Append(sep);
                 sb.Append(parts[k]);
             }
             return sb.ToString();

@@ -8,6 +8,16 @@ namespace ByteAtlas;
 /// <summary>Operating system helpers: Explorer, properties, command prompt, admin restart, context menu, tasks.</summary>
 internal static class Shell
 {
+    /// <summary>Items of SSH / S3 / Azure / WebDAV scans: their paths are addresses, not files on this computer.</summary>
+    public static bool IsRemote(string path) => path.Contains("://", StringComparison.Ordinal);
+
+    /// <summary>Opens a scanned file with its program (nothing for remote items).</summary>
+    public static void OpenItem(string path)
+    {
+        if (!IsRemote(path))
+            Open(path);
+    }
+
     public static void Open(string path)
     {
         try
@@ -27,6 +37,8 @@ internal static class Shell
 
     public static void Reveal(string path)
     {
+        if (IsRemote(path))
+            return;
         if (OperatingSystem.IsWindows())
         {
             if (Directory.Exists(path) && Path.GetPathRoot(path) == path)
@@ -40,12 +52,14 @@ internal static class Shell
 
     public static void Properties(string path)
     {
-        if (OperatingSystem.IsWindows())
+        if (OperatingSystem.IsWindows() && !IsRemote(path))
             ByteAtlas.Native.Platform.Properties(path);
     }
 
     public static void CommandPrompt(string folder)
     {
+        if (IsRemote(folder))
+            return;
         if (OperatingSystem.IsWindows())
             Process.Start(new ProcessStartInfo(Sys("cmd.exe")) { WorkingDirectory = folder, UseShellExecute = true });
         else

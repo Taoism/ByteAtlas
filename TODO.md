@@ -51,10 +51,22 @@ clean-room, open source. Version 0.1.0 (2026-11-21).
 - Treemap path bar, click selects in the tree, outline of the selection, right-click menu.
 - Toolbar icons (Material Design Icons, Apache 2.0, dark grey glyphs).
 
+## Done (next version, 2026-11-21)
+
+- Remote sources: SSH (GNU find, password / key file, trust-on-first-use host keys kept in ssh-known-hosts.txt),
+  Amazon S3 + compatible (SigV4, paging), Azure Blob (SAS), WebDAV (PROPFIND), disk images (VHDX / VHD / ISO
+  mounted read-only while the scan is open). GUI dialog with saved sources (DPAPI-protected passwords on request),
+  addresses typed in the path box, CLI addresses + --key / --endpoint / --access-key / --password-env.
+  Tested against Docker servers (tests/remote); items of remote scans are read-only (no delete, Explorer menu, …).
+- Menu shortcuts (Ctrl+O, F5, Ctrl+F, …) were only displayed, now bound; screen-reader names for the path box and
+  icon-only buttons.
+- Change-journal refresh, scan cache, progress panel, accessibility (see git log).
+
 ## Open
 
-- [ ] Remote sources: SharePoint / OneDrive (Graph), Amazon S3, Azure Blob, WebDAV (beyond mapped drives),
-      VHD(X) images (mount read-only, scan, dismount), Outlook mailboxes, Linux via SSH, phones via MTP.
+- [ ] More remote sources: SharePoint / OneDrive through Microsoft Graph (sign-in), Outlook mailboxes, phones via MTP.
+- [ ] Report designer + print preview inside the app; SMTP mail; portable mode; cleanup recommendations;
+      treemap colour by age / growth; SMART disk health; Debian / Ubuntu .deb.
 - [ ] Print preview inside the app (currently: PDF opened in the viewer).
 - [ ] Explorer menu and drag-out need a manual check (UI automation cannot drive them).
 - [ ] Release: publish GUI + CLI side by side (GUI looks for byteatlas-cli next to itself), installer, portable zip,

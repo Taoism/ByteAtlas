@@ -237,7 +237,7 @@ public sealed partial class MainWindow
 
     // ---------------- chart tab ----------------
 
-    private Control ChartTab()
+    private DockPanel ChartTab()
     {
         _pie.Format = _bars.Format = _treemap.Format = v => _settings.Size(v);
         _pie.ItemDoubleClicked += (_, t) => ChartActivate(t);
@@ -261,7 +261,7 @@ public sealed partial class MainWindow
             if (t is DirNode d)
                 ShowInTree(d);
             else if (t is FileItem f)
-                Shell.Open(f.FullPath);
+                Shell.OpenItem(f.FullPath);
         };
         _treemap.UpRequested += (_, _) => GoUp();
         Avalonia.Automation.AutomationProperties.SetName(_treemap, "Treemap of the selected folder");
@@ -468,7 +468,7 @@ public sealed partial class MainWindow
     private ThumbnailView? _thumbs;
     private Grid? _detailsHost;
 
-    private Control DetailsTab()
+    private DockPanel DetailsTab()
     {
         _preview = new PreviewPane(_settings);
         _thumbs = new ThumbnailView(_settings);
@@ -477,7 +477,7 @@ public sealed partial class MainWindow
             if (i is DirNode d)
                 ShowInTree(d);
             else
-                Shell.Open(i.FullPath);
+                Shell.OpenItem(i.FullPath);
         };
         _thumbs.SelectionChanged += (_, i) => _preview.Show(i);
         _thumbs.ContextMenu = ItemContextMenu(() => [.. _thumbs.SelectedItems]);
@@ -533,7 +533,7 @@ public sealed partial class MainWindow
                 if (r.Item is DirNode d)
                     ShowInTree(d);
                 else
-                    Shell.Open(r.Path);
+                    Shell.OpenItem(r.Path);
             }
         };
         g.ContextMenu = ItemContextMenu(() => g.SelectedItems.OfType<ItemRow>().Select(r => r.Item).ToList());
@@ -624,7 +624,7 @@ public sealed partial class MainWindow
         return g;
     }
 
-    private Control ExtensionsTab()
+    private DockPanel ExtensionsTab()
     {
         var bar = new WrapPanel { Orientation = Orientation.Horizontal, ItemSpacing = 6 };
         var group = new CheckBox { Content = "Group file types", IsChecked = _settings.GroupExtensions, VerticalAlignment = VerticalAlignment.Center };
@@ -663,7 +663,7 @@ public sealed partial class MainWindow
         return WithOverview(StatsLayout(_extGrid, _extChart, "extensions"), bar);
     }
 
-    private Control UsersTab()
+    private DockPanel UsersTab()
     {
         var bar = new WrapPanel { Orientation = Orientation.Horizontal, ItemSpacing = 6 };
         bar.Children.Add(ToolButton("Filter tree by selection", () =>
@@ -699,7 +699,7 @@ public sealed partial class MainWindow
         return WithOverview(StatsLayout(_userGrid, _userChart, "users"), bar);
     }
 
-    private Control AgeTab()
+    private DockPanel AgeTab()
     {
         var bar = new WrapPanel { Orientation = Orientation.Horizontal, ItemSpacing = 6 };
         var basis = new ComboBox { ItemsSource = new[] { "Last modified", "Last accessed", "Created" }, SelectedIndex = (int)_settings.AgeBasis, MinWidth = 140 };
@@ -731,7 +731,7 @@ public sealed partial class MainWindow
         return WithOverview(StatsLayout(_ageGrid, _ageChart, "ages"), bar);
     }
 
-    private Control TopTab()
+    private DockPanel TopTab()
     {
         var bar = new WrapPanel { Orientation = Orientation.Horizontal, ItemSpacing = 6 };
         var count = new ComboBox { ItemsSource = new[] { 50, 100, 250, 500, 1000, 5000 }, SelectedItem = _settings.TopCount, MinWidth = 90 };
@@ -769,7 +769,7 @@ public sealed partial class MainWindow
 
     // ---------------- history ----------------
 
-    private Control HistoryTab()
+    private DockPanel HistoryTab()
     {
         var bar = new WrapPanel { Orientation = Orientation.Horizontal, ItemSpacing = 6 };
         var zero = new CheckBox { Content = "Show zero point", VerticalAlignment = VerticalAlignment.Center };

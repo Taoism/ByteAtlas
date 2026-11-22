@@ -64,6 +64,8 @@ public sealed partial class MainWindow
             return;
         }
         path = Environment.ExpandEnvironmentVariables(path.Trim().Trim('"'));
+        if (!Directory.Exists(path) && TryStartRemote(path))
+            return;
         if (!Directory.Exists(path))
         {
             _ = Dialogs.MessageBox.ShowAsync(this, $"The path \"{path}\" does not exist or cannot be reached.", Dialogs.MessageKind.Warning, "ByteAtlas");
@@ -109,7 +111,7 @@ public sealed partial class MainWindow
     /// <summary>Saves the scan for the next start (in the background, one save per scan at a time).</summary>
     private void SaveCache(ScanSession s)
     {
-        if (!_settings.CacheScans || s.IndexFile != null || s.IsGroup || s.State != ScanState.Done || !_cacheSaving.TryAdd(s, 0))
+        if (!_settings.CacheScans || s.IndexFile != null || s.IsGroup || s.Remote != null || _mountedImages.ContainsKey(s) || s.State != ScanState.Done || !_cacheSaving.TryAdd(s, 0))
             return;
         _ = Task.Run(() =>
         {
@@ -292,6 +294,7 @@ public sealed partial class MainWindow
         _tree.Rebuild();
         if (_watchers.Remove(s, out var w))
             w.Dispose();
+        ReleaseImage(s);
         UpdateViews(force: true);
     }
 
@@ -321,7 +324,7 @@ public sealed partial class MainWindow
         _watchers.Clear();
         if (!_settings.WatchChanges)
             return;
-        foreach (var s in _tree.Scans.Where(x => x.IndexFile == null && x.State == ScanState.Done))
+        foreach (var s in _tree.Scans.Where(x => x.IndexFile == null && x.Remote == null && x.State == ScanState.Done))
         {
             try
             {

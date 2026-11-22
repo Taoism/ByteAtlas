@@ -13,7 +13,49 @@ namespace ByteAtlas.Remote;
 public static class RemoteSources
 {
     /// <summary>Known SSH host keys (host:port → SHA-256 fingerprint); unknown keys are trusted on first use and remembered.</summary>
-    public static Dictionary<string, string> KnownHosts { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public static Dictionary<string, string> KnownHosts { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Where <see cref="KnownHosts"/> is kept (shared by the app and byteatlas-cli); null = memory only.</summary>
+    public static string? KnownHostsFile { get; set; } =
+        System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ByteAtlas", "ssh-known-hosts.txt");
+
+    private static bool _hostsLoaded;
+
+    private static void LoadKnownHosts()
+    {
+        if (_hostsLoaded || KnownHostsFile == null)
+            return;
+        _hostsLoaded = true;
+        if (!File.Exists(KnownHostsFile))
+            return;
+        foreach (var line in File.ReadAllLines(KnownHostsFile))
+        {
+            var cut = line.IndexOf(' ');
+            if (cut > 0 && !line.StartsWith('#'))
+                KnownHosts[line[..cut]] = line[(cut + 1)..].Trim();
+        }
+    }
+
+    private static void SaveKnownHosts()
+    {
+        if (KnownHostsFile == null)
+            return;
+        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(KnownHostsFile)!);
+        File.WriteAllLines(KnownHostsFile, KnownHosts.OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase).Select(kv => kv.Key + " " + kv.Value));
+    }
+
+    /// <summary>Forgets a host key (after the server was reinstalled). Returns false when it was not known.</summary>
+    public static bool ForgetHost(string hostAndPort)
+    {
+        lock (KnownHosts)
+        {
+            LoadKnownHosts();
+            if (!KnownHosts.Remove(hostAndPort))
+                return false;
+            SaveKnownHosts();
+            return true;
+        }
+    }
 
     public static void Scan(ScanSession s, RemoteSpec spec, CancellationToken ct)
     {
@@ -44,7 +86,7 @@ public static class RemoteSources
         var port = spec.Port > 0 ? spec.Port : 22;
         var methods = new List<AuthenticationMethod>();
         if (spec.KeyFile.Length > 0)
-            methods.Add(new PrivateKeyAuthenticationMethod(spec.User, spec.Password.Length > 0 ? new PrivateKeyFile(spec.KeyFile, spec.Password) : new PrivateKeyFile(spec.KeyFile)));
+            methods.Add(new PrivateKeyAuthenticationMethod(spec.User, OpenKey(spec.KeyFile, spec.Password)));
         if (spec.Password.Length > 0)
             methods.Add(new PasswordAuthenticationMethod(spec.User, spec.Password));
         if (methods.Count == 0)
@@ -52,28 +94,35 @@ public static class RemoteSources
         var info = new ConnectionInfo(spec.Host, port, spec.User, [.. methods]) { Timeout = TimeSpan.FromSeconds(20) };
         using var client = new SshClient(info);
         var hostKey = $"{spec.Host}:{port}";
+        var rejected = false;
         client.HostKeyReceived += (_, e) =>
         {
             var fp = e.FingerPrintSHA256;
             lock (KnownHosts)
             {
+                LoadKnownHosts();
                 if (KnownHosts.TryGetValue(hostKey, out var known))
+                {
                     e.CanTrust = known == fp;
+                    rejected = !e.CanTrust;
+                }
                 else
                 {
                     KnownHosts[hostKey] = fp;
+                    SaveKnownHosts();
                     e.CanTrust = true;
                 }
             }
         };
         s.CurrentPath = "Connecting to " + hostKey;
+        s.MethodUsed = $"SSH {hostKey} (find)";
         try
         {
             client.Connect();
         }
-        catch (Renci.SshNet.Common.SshConnectionException e) when (e.Message.Contains("Key exchange", StringComparison.OrdinalIgnoreCase) || e.DisconnectReason == Renci.SshNet.Messages.Transport.DisconnectReason.HostKeyNotVerifiable)
+        catch (Renci.SshNet.Common.SshException) when (rejected)
         {
-            throw new IOException($"The host key of {hostKey} changed since the last connection — refusing (possible man-in-the-middle). Remove it under Options › System if the server was reinstalled.");
+            throw new IOException($"The host key of {hostKey} changed since the last connection — refusing (possible man-in-the-middle). If the server was reinstalled, use \"Forget host key\" in the Remote source dialog (or byteatlas-cli scan … --forget-host-key).");
         }
         catch (Renci.SshNet.Common.SshAuthenticationException e)
         {
@@ -84,17 +133,19 @@ public static class RemoteSources
             throw new IOException($"Cannot reach {hostKey}: {e.Message}");
         }
         var path = spec.Path.Length == 0 ? "." : spec.Path;
+        if (client.RunCommand($"test -d {ShellPath(path)}").ExitStatus != 0)
+            throw new DirectoryNotFoundException($"{hostKey}: folder not found or not readable: {path}");
         // one pass of GNU find: type, size, blocks (512 B), mtime, atime, owner, relative path
-        var cmd = $"LC_ALL=C find {Quote(path)} {(spec.StayOnFileSystem ? "-xdev " : "")}-mindepth 1 -printf '%y\\t%s\\t%b\\t%T@\\t%A@\\t%u\\t%P\\n' 2>/dev/null";
+        var cmd = $"LC_ALL=C find {ShellPath(path)} {(spec.StayOnFileSystem ? "-xdev " : "")}-mindepth 1 -printf '%y\\t%s\\t%b\\t%T@\\t%A@\\t%u\\t%P\\n' 2>/dev/null";
         using var command = client.CreateCommand(cmd);
-        var async = command.BeginExecute();
+        var running = command.BeginExecute();
         var tree = new RemoteTree(s);
         s.MethodUsed = $"SSH {hostKey} (find)";
         s.ClusterSize = 4096;
         using (var reader = new StreamReader(command.OutputStream, Encoding.UTF8))
         {
             string? line;
-            while ((line = reader.ReadLine()) != null || !async.IsCompleted)
+            while ((line = reader.ReadLine()) != null || !running.IsCompleted)
             {
                 ct.ThrowIfCancellationRequested();
                 s.PauseGate.Wait(ct);
@@ -117,7 +168,7 @@ public static class RemoteSources
                 }
             }
         }
-        command.EndExecute(async);
+        command.EndExecute(running);
         if (s.FilesDone == 0 && s.FoldersDone == 0)
         {
             var test = client.RunCommand("find --version 2>&1 | head -1");
@@ -126,7 +177,7 @@ public static class RemoteSources
         }
         try
         {
-            var df = client.RunCommand($"LC_ALL=C df -kP {Quote(path)} | tail -1").Result.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            var df = client.RunCommand($"LC_ALL=C df -kP {ShellPath(path)} | tail -1").Result.Split(' ', StringSplitOptions.RemoveEmptyEntries);
             if (df.Length >= 4)
             {
                 s.VolumeTotal = long.Parse(df[1], CultureInfo.InvariantCulture) * 1024;
@@ -140,7 +191,29 @@ public static class RemoteSources
         client.Disconnect();
     }
 
+    private static PrivateKeyFile OpenKey(string file, string passphrase)
+    {
+        try
+        {
+            return passphrase.Length > 0 ? new PrivateKeyFile(file, passphrase) : new PrivateKeyFile(file);
+        }
+        catch (Exception e) when (e is CryptographicException or Renci.SshNet.Common.SshException or ArgumentException or InvalidOperationException)
+        {
+            throw new UnauthorizedAccessException(passphrase.Length == 0 && e is Renci.SshNet.Common.SshPassPhraseNullOrEmptyException
+                ? $"The key {System.IO.Path.GetFileName(file)} needs its passphrase (give it as the password)."
+                : $"Cannot open the key {System.IO.Path.GetFileName(file)}: wrong passphrase or unknown key format ({e.Message})");
+        }
+    }
+
     private static string Quote(string s) => "'" + s.Replace("'", "'\\''") + "'";
+
+    /// <summary>Quotes a path for the remote shell; a leading ~ stays the home folder.</summary>
+    internal static string ShellPath(string path)
+    {
+        if (path == "~")
+            return "\"$HOME\"";
+        return path.StartsWith("~/", StringComparison.Ordinal) ? "\"$HOME\"/" + Quote(path[2..]) : Quote(path);
+    }
 
     private static DateTime Unix(string seconds) =>
         double.TryParse(seconds, NumberStyles.Float, CultureInfo.InvariantCulture, out var v) && v > 0

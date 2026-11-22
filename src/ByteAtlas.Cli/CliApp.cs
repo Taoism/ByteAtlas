@@ -58,6 +58,22 @@ internal static class CliApp
             --verbose                 show where the scan time went
             --cache DIR               keep the scan in DIR; next time load it and refresh only what changed
 
+          Remote sources (path given as an address instead of a folder):
+            ssh://user@host[:port]/path   Linux / Unix server over SSH (needs GNU find); ~/x = home folder
+            s3://bucket/prefix            Amazon S3 (s3+https://endpoint/bucket/prefix: MinIO, Wasabi, B2, …)
+            azure:https://acct.blob.core.windows.net/container?SAS   Azure Blob container (SAS token)
+            dav://host/path, davs://host/path   WebDAV over http / https
+            image.vhdx / .vhd / .iso      disk image: mounted read-only, scanned, dismounted
+            --password-env VAR        read the password / S3 secret from environment variable VAR
+                                      (default BYTEATLAS_PASSWORD; S3 also AWS_SECRET_ACCESS_KEY)
+            --key FILE                SSH private key (its passphrase from the password)
+            --endpoint URL            S3-compatible endpoint (same as the s3+https:// form)
+            --region R                S3 region (default us-east-1, or AWS_REGION)
+            --access-key K            S3 access key (default AWS_ACCESS_KEY_ID)
+            --user U                  user name (WebDAV; SSH when not in the address)
+            --all-filesystems         SSH: also follow other mounted file systems
+            --forget-host-key         SSH: forget the remembered host key first (server reinstalled)
+
           byteatlas-cli compare <path-or-index> <older-index-or-path> [--export FILE] [--top N]
           byteatlas-cli search <path> [--template large|old|temp|duplicates|longpaths]
                 [--name PATTERN] [--min-size 100MB] [--max-size 1GB] [--older-days N] [--newer-days N]
@@ -66,6 +82,26 @@ internal static class CliApp
 
         Exit codes: 0 ok, 1 error, 2 scan finished with errors / stopped.
         """;
+
+    private static Remote.RemoteSpec RemoteOnly(Remote.RemoteSpec? remote, string option) =>
+        remote ?? throw new ArgumentException($"{option} is only for remote sources (ssh://, s3://, azure:, dav://)");
+
+    /// <summary>Fills secrets and S3 defaults from the environment (never from the command line, where others can read them).</summary>
+    private static void FillRemote(Remote.RemoteSpec r, string passwordEnv)
+    {
+        if (r.Password.Length == 0)
+            r.Password = Environment.GetEnvironmentVariable(passwordEnv) ?? "";
+        if (r.Kind != Remote.RemoteKind.S3)
+            return;
+        if (r.Password.Length == 0)
+            r.Password = Environment.GetEnvironmentVariable("AWS_SECRET_ACCESS_KEY") ?? "";
+        if (r.AccessKey.Length == 0)
+            r.AccessKey = Environment.GetEnvironmentVariable("AWS_ACCESS_KEY_ID") ?? "";
+        if (r.Region is "" or "us-east-1" && Environment.GetEnvironmentVariable("AWS_REGION") is { Length: > 0 } region)
+            r.Region = region;
+        if (r.AccessKey.Length == 0 || r.Password.Length == 0)
+            throw new ArgumentException($"S3 needs --access-key (or AWS_ACCESS_KEY_ID) and the secret key in {passwordEnv} or AWS_SECRET_ACCESS_KEY");
+    }
 
     private static int Fail(string message)
     {
@@ -123,6 +159,9 @@ internal static class CliApp
         var history = false;
         var verbose = false;
         string? cacheDir = null;
+        var remote = Remote.RemoteSpec.Parse(a[0]);
+        var passwordEnv = "BYTEATLAS_PASSWORD";
+        var forgetHost = false;
         for (var i = 1; i < a.Length; i++)
         {
             string Next() => i + 1 < a.Length ? a[++i] : throw new ArgumentException($"{a[i]} needs a value");
@@ -166,6 +205,30 @@ internal static class CliApp
                 case "--cache":
                     cacheDir = Next();
                     break;
+                case "--password-env":
+                    passwordEnv = Next();
+                    break;
+                case "--key":
+                    RemoteOnly(remote, a[i]).KeyFile = Next();
+                    break;
+                case "--endpoint":
+                    RemoteOnly(remote, a[i]).Endpoint = Next();
+                    break;
+                case "--region":
+                    RemoteOnly(remote, a[i]).Region = Next();
+                    break;
+                case "--access-key":
+                    RemoteOnly(remote, a[i]).AccessKey = Next();
+                    break;
+                case "--user":
+                    RemoteOnly(remote, a[i]).User = Next();
+                    break;
+                case "--all-filesystems":
+                    RemoteOnly(remote, a[i]).StayOnFileSystem = false;
+                    break;
+                case "--forget-host-key":
+                    forgetHost = true;
+                    break;
                 case "--verbose" or "-v":
                     verbose = true;
                     break;
@@ -186,9 +249,33 @@ internal static class CliApp
                     return Fail("unknown option " + a[i]);
             }
         }
+        if (remote != null)
+        {
+            if (cacheDir != null)
+                return Fail("--cache works only for local drives");
+            FillRemote(remote, passwordEnv);
+            if (forgetHost && remote.Kind == Remote.RemoteKind.Ssh)
+                Remote.RemoteSources.ForgetHost($"{remote.Host}:{remote.Port}");
+        }
         var sw = Stopwatch.StartNew();
         ScanSession? s = null;
-        if (cacheDir != null && ScanCache.Load(cacheDir, a[0], opt) is { } cached)
+        string? mounted = null;
+        if (remote?.Kind == Remote.RemoteKind.DiskImage)
+        {
+            if (!OperatingSystem.IsWindows())
+                return Fail("disk images can only be mounted on Windows");
+            var volumes = Remote.DiskImages.Mount(remote.Url);
+            mounted = remote.Url;
+            Console.WriteLine($"mounted {remote.Url} read-only: {string.Join(", ", volumes)}");
+            a[0] = volumes[0];
+            remote = null;
+        }
+        if (remote != null)
+        {
+            s = new ScanSession(remote.Display, opt) { Remote = remote };
+            await Scanner.ScanAsync(s, CancellationToken.None);
+        }
+        if (s == null && cacheDir != null && ScanCache.Load(cacheDir, a[0], opt) is { } cached)
         {
             if (verbose)
                 Console.WriteLine($"cache loaded in {sw.Elapsed.TotalSeconds:N1} s");
@@ -198,7 +285,17 @@ internal static class CliApp
         if (s == null)
         {
             s = new ScanSession(a[0], opt);
-            await Scanner.ScanAsync(s, CancellationToken.None);
+            if (mounted != null)
+                s.Title = Path.GetFileName(mounted);
+            try
+            {
+                await Scanner.ScanAsync(s, CancellationToken.None);
+            }
+            finally
+            {
+                if (mounted != null && OperatingSystem.IsWindows())
+                    Remote.DiskImages.Dismount(mounted);
+            }
         }
         sw.Stop();
         if (cacheDir != null && s.State == ScanState.Done)
@@ -211,6 +308,8 @@ internal static class CliApp
         var r = s.Root;
         Console.WriteLine($"{r.FullPath}: {SizeFormat.Format(r.Size, exp.Unit)} ({SizeFormat.Format(r.Allocated, exp.Unit)} allocated), {SizeFormat.Count(r.FileCount)} files, {SizeFormat.Count(r.FolderCount)} folders");
         Console.WriteLine($"{s.MethodUsed}, {sw.Elapsed.TotalSeconds:N1} s, {s.Errors.Count} errors, {s.State}");
+        foreach (var err in s.Errors.Take(s.State == ScanState.Failed ? 10 : (verbose ? 20 : 0)))
+            await Console.Error.WriteLineAsync($"  error: {err.Path}: {err.Message}");
         if (verbose)
             Console.WriteLine("timings: " + s.Timings);
         foreach (var d in r.Dirs.Take(top))

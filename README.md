@@ -18,6 +18,11 @@ Open source (MIT), dark by default, written in C# (.NET 10 + Avalonia).
   counted once (optional), owners, long paths (> 260 characters), mount points / junctions (optional).
 - Include / exclude filters (wildcards, regular expressions, whole names, folders).
 - Watch for file system changes and refresh what changed.
+- **Remote sources** (File › Scan remote source, or type the address): Linux / Unix servers over **SSH** (one pass
+  of GNU `find`; password or key file; host keys trusted on first use, then checked), **Amazon S3** and
+  S3-compatible storage (MinIO, Wasabi, Backblaze B2, Cloudflare R2, …), **Azure Blob** containers (SAS URL),
+  **WebDAV** (Nextcloud, SharePoint, …), and **disk images** (VHDX / VHD / ISO, mounted read-only while the scan
+  is open). Sources can be saved; passwords only when you ask, encrypted for your Windows account.
 
 **Views**
 - Directory tree with size bars, `[Files]` rows, bold for large folders, compressed in blue, long paths in red;
@@ -67,9 +72,16 @@ byteatlas-cli scan D:\ --export "D:\Reports\d_{date}.xlsx" --save-index "D:\Repo
 byteatlas-cli compare D:\ "D:\Reports\d_2026-11-01.badb" --export changes.html
 byteatlas-cli search E:\ --template duplicates --hash sha256 --export dups.csv
 byteatlas-cli history C:\
+byteatlas-cli scan ssh://me@server/srv --export srv.html
+byteatlas-cli scan s3://my-bucket/logs --access-key AKIA… --export logs.xlsx
+byteatlas-cli scan s3+https://s3.wasabisys.com/my-bucket --access-key …
+byteatlas-cli scan "azure:https://acct.blob.core.windows.net/backups?sv=…&sig=…"
+byteatlas-cli scan davs://me@cloud.example.com/remote.php/dav/files/me/
+byteatlas-cli scan D:\Images\disk.vhdx
 ```
 
-`byteatlas-cli --help` lists every option.
+`byteatlas-cli --help` lists every option. Passwords and secret keys are read from environment variables
+(`BYTEATLAS_PASSWORD` or `--password-env NAME`; S3 also `AWS_SECRET_ACCESS_KEY`), never from the command line.
 
 ## Building
 
@@ -82,6 +94,10 @@ dotnet run --project src/ByteAtlas -- C:\
 ```
 
 Reading the master file table needs administrator rights; without them ByteAtlas walks folders instead.
+
+Remote-source tests use local servers in Docker (WSL): `tests/remote/setup.sh` starts SSH, S3 (rclone), Azurite and
+WebDAV with a known tree, `tests/remote/many.sh` adds 2,100 objects and SSH keys; then
+`BYTEATLAS_REMOTE_TESTS=1 dotnet test tests/ByteAtlas.Tests`.
 The icon is drawn in `art/byteatlas.svg`; `dotnet run --project tools/IconRender` renders the PNG / ICO files.
 
 ## License

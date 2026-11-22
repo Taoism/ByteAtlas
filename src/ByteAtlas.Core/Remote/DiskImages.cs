@@ -7,7 +7,7 @@ namespace ByteAtlas.Remote;
 [SupportedOSPlatform("windows")]
 public static class DiskImages
 {
-    public static readonly string[] Extensions = [".vhdx", ".vhd", ".iso"];
+    public static IReadOnlyList<string> Extensions => RemoteSpec.ImageExtensions;
 
     private static string Ps(string script)
     {

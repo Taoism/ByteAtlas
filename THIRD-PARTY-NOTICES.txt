@@ -2,7 +2,8 @@ ByteAtlas uses the following third-party components.
 
 Avalonia (UI framework) — MIT License — https://github.com/AvaloniaUI/Avalonia
 PDFsharp 6.2 (PDF reports) — MIT License — https://github.com/empira/PDFsharp
-Microsoft.Data.Sqlite, System.Management, System.DirectoryServices.AccountManagement — MIT License — https://github.com/dotnet
+Microsoft.Data.Sqlite, System.Management, System.DirectoryServices.AccountManagement, System.Security.Cryptography.ProtectedData — MIT License — https://github.com/dotnet
+SSH.NET (SSH remote scans) — MIT License — https://github.com/sshnet/SSH.NET
 SQLitePCLRaw / SQLite — Apache License 2.0 / public domain
 Svg.Skia (icon rendering tool only, not shipped) — MIT License
 

@@ -33,8 +33,11 @@ internal static class Mail
         public IntPtr FileType;
     }
 
+    // MapiMessage is a class with ANSI strings and nested arrays: LibraryImport cannot marshal it, DllImport can
+#pragma warning disable SYSLIB1054
     [DllImport("mapi32.dll", CharSet = CharSet.Ansi)]
     private static extern int MAPISendMail(IntPtr session, IntPtr uiParam, MapiMessage message, int flags, int reserved);
+#pragma warning restore SYSLIB1054
 
     private const int MAPI_LOGON_UI = 0x1, MAPI_DIALOG = 0x8;
 
