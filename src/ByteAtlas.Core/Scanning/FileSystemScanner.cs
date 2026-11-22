@@ -61,7 +61,7 @@ public sealed class FileSystemScanner
             if (!_work.TryPop(out var dir))
             {
                 if (spin.Count > 30)
-                    _done.Wait(5);
+                    _done.Wait(5, CancellationToken.None);
                 else
                     spin.SpinOnce();
                 continue;

@@ -1,0 +1,694 @@
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Layout;
+using Avalonia.Media;
+using ByteAtlas.Analysis;
+using ByteAtlas.Controls;
+using ByteAtlas.Model;
+using ByteAtlas.Scanning;
+using ByteAtlas.Storage;
+using ByteAtlas.Views;
+
+namespace ByteAtlas;
+
+public sealed partial class MainWindow
+{
+    // overview
+    private readonly WrapPanel _overview = new() { Orientation = Orientation.Horizontal };
+
+    // chart tab
+    private readonly PieChart _pie = new();
+    private readonly BarChart _bars = new();
+    private readonly TreemapChart _treemap = new();
+    private string _chartSource = "Folders";
+
+    // details
+    private readonly DataGrid _details;
+
+    // statistics
+    private readonly DataGrid _extGrid = GridFactory.Create(GridFactory.StatColumns);
+    private readonly BarChart _extChart = new() { MaxBars = 15 };
+    private readonly DataGrid _userGrid = GridFactory.Create(GridFactory.StatColumns.Where(c => c.Header != "Description"));
+    private readonly BarChart _userChart = new() { MaxBars = 15 };
+    private readonly DataGrid _ageGrid = GridFactory.Create(GridFactory.StatColumns.Where(c => c.Header != "Description"));
+    private readonly BarChart _ageChart = new() { KeepOrder = true };
+    private readonly DataGrid _topGrid;
+    private readonly LineChart _historyChart = new();
+    private readonly TextBlock _historyInfo = new() { Classes = { "muted" }, VerticalAlignment = VerticalAlignment.Center };
+
+    private object? _shownFor;
+    private int _shownTab = -1;
+    private CancellationTokenSource? _statsCts;
+    private DateTime _lastLive;
+
+    private ViewFilter? _filter;
+
+    private void BuildTabs()
+    {
+        _tabs.Items.Add(new TabItem { Header = "Chart", Content = ChartTab() });
+        _tabs.Items.Add(new TabItem { Header = "Details", Content = DetailsTab() });
+        _tabs.Items.Add(new TabItem { Header = "Extensions", Content = ExtensionsTab() });
+        _tabs.Items.Add(new TabItem { Header = "Users", Content = UsersTab() });
+        _tabs.Items.Add(new TabItem { Header = "Age of Files", Content = AgeTab() });
+        _tabs.Items.Add(new TabItem { Header = "Top Files", Content = TopTab() });
+        _tabs.Items.Add(new TabItem { Header = "History", Content = HistoryTab() });
+        var idx = _tabs.Items.OfType<TabItem>().ToList().FindIndex(t => (t.Header as string) == _settings.LastTab);
+        _tabs.SelectedIndex = Math.Max(0, idx);
+        _tabs.SelectionChanged += (_, e) =>
+        {
+            if (ReferenceEquals(e.Source, _tabs))
+                UpdateViews(force: true);
+        };
+    }
+
+    // wrap the tab content with the overview strip on top
+    private Control WithOverview(Control content, Control? toolbar = null)
+    {
+        var dock = new DockPanel();
+        var over = new Border { Classes = { "card" }, Margin = new Thickness(0, 0, 0, 6), Child = new ContentControl() };
+        DockPanel.SetDock(over, Dock.Top);
+        dock.Children.Add(over);
+        if (toolbar != null)
+        {
+            var tb = new Border { Padding = new Thickness(0, 0, 0, 6), Child = toolbar };
+            DockPanel.SetDock(tb, Dock.Top);
+            dock.Children.Add(tb);
+        }
+        dock.Children.Add(content);
+        return dock;
+    }
+
+    private void MoveOverviewTo(int tab)
+    {
+        // the overview strip lives in exactly one tab at a time
+        if (_overview.Parent is ContentControl old)
+            old.Content = null;
+        if (_tabs.Items[tab] is TabItem { Content: DockPanel dock } && dock.Children[0] is Border { Child: ContentControl cc })
+            cc.Content = _overview;
+    }
+
+    private void UpdateOverview(ScanSession? s, DirNode? d)
+    {
+        _overview.Children.Clear();
+        if (s == null || d == null)
+        {
+            _overview.Children.Add(new TextBlock { Text = "No scan yet", Classes = { "muted" } });
+            return;
+        }
+        void Stat(string label, string value, string? tip = null)
+        {
+            var sp = new StackPanel { Margin = new Thickness(0, 0, 28, 2) };
+            sp.Children.Add(new TextBlock { Text = label, Classes = { "muted" }, FontSize = 11.5 });
+            sp.Children.Add(new TextBlock { Text = value, Classes = { "big" } });
+            if (tip != null)
+                ToolTip.SetTip(sp, tip);
+            _overview.Children.Add(sp);
+        }
+        Stat("Size", _settings.Size(d.Size));
+        Stat("Allocated", _settings.Size(d.Allocated), d.Allocated > d.Size ? $"Wasted by cluster rounding: {_settings.Size(d.Allocated - d.Size)}" : "Compressed or sparse files take less space than their size");
+        Stat("Files", SizeFormat.Count(d.FileCount));
+        Stat("Folders", SizeFormat.Count(d.FolderCount));
+        if (d.Parent != null)
+            Stat("Of the scan", SizeFormat.Percent(s.Root.Size <= 0 ? 0 : (double)d.Size / s.Root.Size));
+        if (s.VolumeTotal > 0)
+        {
+            var used = s.VolumeTotal - s.VolumeFree;
+            var sp = new StackPanel { Margin = new Thickness(0, 0, 28, 2), MinWidth = 170 };
+            sp.Children.Add(new TextBlock { Text = $"Drive: {_settings.Size(s.VolumeFree)} free of {_settings.Size(s.VolumeTotal)}", Classes = { "muted" }, FontSize = 11.5 });
+            sp.Children.Add(new PercentBar { Value = (double)used / s.VolumeTotal, Width = 170, Margin = new Thickness(0, 4, 0, 0) });
+            _overview.Children.Add(sp);
+        }
+        if (_settings.CostPerGb > 0)
+            Stat("Costs", (d.Allocated / (double)(1L << 30) * _settings.CostPerGb).ToString("N2", System.Globalization.CultureInfo.CurrentCulture) + " " + _settings.Currency);
+        if (d.CompareSize is { } c)
+            Stat("Change", c == -1 ? "new" : SizeFormat.FormatChange(d.SizeChange, _settings.Unit, _settings.Decimals), s.ComparedWith);
+        var when = s.IndexFile != null ? $"Index file from {s.ScanDate:g}" : s.State is ScanState.Scanning or ScanState.Paused ? "Scanning…" : $"Scanned {s.Started:g} in {s.Duration.TotalSeconds:N1} s";
+        Stat("Last change", SizeFormat.Date(d.Modified, _settings.DateFormat), when + "  ·  " + s.MethodUsed);
+    }
+
+    /// <summary>Fills the visible tab for the selected folder (stats are computed in the background).</summary>
+    private void UpdateViews(bool force, bool live = false)
+    {
+        var s = SelectedScan;
+        var d = SelectedFolder;
+        var tab = _tabs.SelectedIndex;
+        if (live)
+        {
+            if ((DateTime.Now - _lastLive).TotalSeconds < 2)
+                return;
+            _lastLive = DateTime.Now;
+        }
+        else if (!force && ReferenceEquals(_shownFor, d) && _shownTab == tab)
+            return;
+        _shownFor = d;
+        _shownTab = tab;
+        MoveOverviewTo(Math.Max(0, tab));
+        UpdateOverview(s, d);
+        if (s == null || d == null)
+        {
+            _details.ItemsSource = null;
+            _treemap.Root = null;
+            _pie.SetData([]);
+            return;
+        }
+        switch (tab)
+        {
+            case 0:
+                UpdateChart(s, d);
+                break;
+            case 1:
+                UpdateDetails(s, d);
+                break;
+            case 2:
+                RunInBackground(() => _settings.GroupExtensions ? Statistics.ByGroup(d, _settings.FileGroupSet) : Statistics.ByExtension(d, _settings.FileGroupSet, _filter?.Predicate), rows => FillStats(_extGrid, _extChart, rows, "File types in " + d.Name));
+                break;
+            case 3:
+                RunInBackground(() => Statistics.ByOwner(d, s.Owners), rows => FillStats(_userGrid, _userChart, rows, "Owners in " + d.Name));
+                break;
+            case 4:
+                RunInBackground(() => Statistics.ByAge(d, _settings.AgeIntervalSet, _settings.AgeBasis), rows => FillStats(_ageGrid, _ageChart, rows, $"Age of files ({_settings.AgeBasis.ToString().ToLowerInvariant()}) in {d.Name}", keepColors: true));
+                break;
+            case 5:
+                RunInBackground(() => Statistics.TopFiles(d, _settings.TopCount, _settings.TreeMode == TreeValueMode.Allocated), files =>
+                    _topGrid.ItemsSource = files.Select(f => new ItemRow(f, s, _settings)).ToList());
+                break;
+            case 6:
+                UpdateHistory(s);
+                break;
+        }
+    }
+
+    private void RunInBackground<T>(Func<T> compute, Action<T> show)
+    {
+        _statsCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _statsCts = cts;
+        _ = Task.Run(() =>
+        {
+            T result;
+            try
+            {
+                result = compute();
+            }
+            catch (InvalidOperationException)
+            {
+                return; // tree changed under us during a scan: the next tick tries again
+            }
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                if (!cts.IsCancellationRequested)
+                    show(result);
+            });
+        }, CancellationToken.None);
+    }
+
+    private void FillStats(DataGrid grid, BarChart chart, List<StatRow> rows, string title, bool keepColors = false)
+    {
+        var items = rows.Select((r, i) => new StatItem(r, _settings, keepColors ? Palette.At(0) : i < 14 ? Palette.At(i) : Palette.Other)).ToList();
+        grid.ItemsSource = items;
+        chart.Title = title;
+        chart.Format = v => _settings.Size(v);
+        chart.SetData(rows.Select((r, i) => new ChartSlice
+        {
+            Label = r.Key.Length == 0 ? "(none)" : r.Key,
+            Value = r.Size,
+            ValueText = $"{_settings.Size(r.Size)}  ·  {SizeFormat.Count(r.Files)} files",
+            Tag = r,
+            Color = keepColors ? Palette.At(0) : null,
+        }));
+    }
+
+    // ---------------- chart tab ----------------
+
+    private Control ChartTab()
+    {
+        _pie.Format = _bars.Format = _treemap.Format = v => _settings.Size(v);
+        _pie.ItemDoubleClicked += (_, t) => ChartActivate(t);
+        _bars.ItemDoubleClicked += (_, t) => ChartActivate(t);
+        _pie.ItemClicked += (_, t) => ChartSelect(t);
+        _bars.ItemClicked += (_, t) => ChartSelect(t);
+        _treemap.ItemClicked += (_, t) => ChartSelect(t);
+        _treemap.ItemDoubleClicked += (_, t) =>
+        {
+            if (t is DirNode d)
+                ShowInTree(d);
+            else if (t is FileItem f)
+                Shell.Open(f.FullPath);
+        };
+        ApplyChartSettings();
+
+        var host = new Panel();
+        host.Children.Add(_pie);
+        host.Children.Add(_bars);
+        host.Children.Add(_treemap);
+
+        ComboBox Combo(string[] items, string selected, Action<string> set)
+        {
+            var c = new ComboBox { ItemsSource = items, SelectedItem = selected, MinWidth = 110 };
+            c.SelectionChanged += (_, _) =>
+            {
+                if (c.SelectedItem is string v)
+                    set(v);
+            };
+            return c;
+        }
+        var type = Combo(["Treemap", "Pie", "Bar"], _settings.ChartType, v =>
+        {
+            _settings.ChartType = v;
+            UpdateViews(true);
+        });
+        var source = Combo(["Folders", "Extensions", "Users", "Age"], _chartSource, v =>
+        {
+            _chartSource = v;
+            UpdateViews(true);
+        });
+        CheckBox Opt(string text, bool on, Action<bool> set)
+        {
+            var cb = new CheckBox { Content = text, IsChecked = on, VerticalAlignment = VerticalAlignment.Center };
+            cb.IsCheckedChanged += (_, _) =>
+            {
+                set(cb.IsChecked == true);
+                ApplyChartSettings();
+                UpdateViews(true);
+            };
+            return cb;
+        }
+        var depth = new NumericUpDown { Minimum = 1, Maximum = 20, Value = _settings.TreemapDepth, Width = 110, FormatString = "0", VerticalAlignment = VerticalAlignment.Center };
+        depth.ValueChanged += (_, _) =>
+        {
+            _settings.TreemapDepth = (int)(depth.Value ?? 6);
+            ApplyChartSettings();
+        };
+        ToolTip.SetTip(depth, "Level of detail: folder levels drawn in the treemap");
+        var bar = new WrapPanel { Orientation = Orientation.Horizontal, ItemSpacing = 8, LineSpacing = 4 };
+        bar.Children.Add(type);
+        bar.Children.Add(source);
+        bar.Children.Add(Opt("Legend", _settings.ChartLegend, v => _settings.ChartLegend = v));
+        bar.Children.Add(Opt("Labels", _settings.ChartLabels, v => _settings.ChartLabels = v));
+        bar.Children.Add(Opt("Free space", _settings.ChartFreeSpace, v => _settings.ChartFreeSpace = v));
+        bar.Children.Add(Opt("Hierarchy", _settings.TreemapHierarchy, v => _settings.TreemapHierarchy = v));
+        bar.Children.Add(Opt("Single files", _settings.TreemapFiles, v => _settings.TreemapFiles = v));
+        bar.Children.Add(Opt("Colour by type", _settings.TreemapColorByType, v => _settings.TreemapColorByType = v));
+        bar.Children.Add(depth);
+        bar.Children.Add(ToolButton("Up", GoUp, "Show the parent folder"));
+        bar.Children.Add(ToolButton("Save image…", SaveChartAsync, "Save the chart as a PNG image"));
+        return WithOverview(host, bar);
+    }
+
+    private void ApplyChartSettings()
+    {
+        _pie.ShowLegend = _settings.ChartLegend;
+        _pie.ShowLabels = _settings.ChartLabels;
+        _pie.OtherPercent = _settings.ChartOtherPercent;
+        _bars.ShowGrid = _settings.ChartGrid;
+        _treemap.ShowLabels = _settings.ChartLabels;
+        _treemap.ShowHierarchy = _settings.TreemapHierarchy;
+        _treemap.ShowFiles = _settings.TreemapFiles;
+        _treemap.ColorByType = _settings.TreemapColorByType;
+        _treemap.MaxDepth = _settings.TreemapDepth;
+        _treemap.Groups = _settings.FileGroupSet;
+        _treemap.InvalidateVisual();
+    }
+
+    private void UpdateChart(ScanSession s, DirNode d)
+    {
+        var type = _chartSource == "Folders" ? _settings.ChartType : _settings.ChartType == "Treemap" ? "Pie" : _settings.ChartType;
+        _treemap.IsVisible = type == "Treemap";
+        _pie.IsVisible = type == "Pie";
+        _bars.IsVisible = type == "Bar";
+        if (type == "Treemap")
+        {
+            _treemap.Root = d;
+            _treemap.InvalidateVisual();
+            return;
+        }
+        var title = $"{_chartSource} in {d.FullPath}";
+        _pie.Title = _bars.Title = title;
+        if (_chartSource == "Folders")
+        {
+            var slices = new List<ChartSlice>();
+            foreach (var c in d.Dirs)
+                slices.Add(new ChartSlice { Label = c.Name, Value = _tree.Value(c), Tag = c, ValueText = FormatTreeValue(_tree.Value(c)) });
+            if (d.OwnFileCount > 0)
+                slices.Add(new ChartSlice { Label = $"[{SizeFormat.Count(d.OwnFileCount)} Files]", Value = _tree.FilesValue(d), Tag = d, Color = Palette.Other, ValueText = FormatTreeValue(_tree.FilesValue(d)) });
+            if (_settings.ChartFreeSpace && d.Parent == null && s.VolumeFree > 0 && _settings.TreeMode != TreeValueMode.Files)
+                slices.Add(new ChartSlice { Label = "Free space", Value = s.VolumeFree, IsFree = true, ValueText = _settings.Size(s.VolumeFree) });
+            SetChart(slices);
+            return;
+        }
+        RunInBackground<List<StatRow>>(() => _chartSource switch
+        {
+            "Extensions" => Statistics.ByExtension(d, _settings.FileGroupSet),
+            "Users" => Statistics.ByOwner(d, s.Owners),
+            _ => Statistics.ByAge(d, _settings.AgeIntervalSet, _settings.AgeBasis),
+        }, rows => SetChart(rows.Select(r => new ChartSlice { Label = r.Key.Length == 0 ? "(none)" : r.Key, Value = r.Size, Tag = r, ValueText = _settings.Size(r.Size) }).ToList()));
+    }
+
+    private void SetChart(List<ChartSlice> slices)
+    {
+        _bars.KeepOrder = _chartSource == "Age";
+        _pie.SetData(slices);
+        _bars.SetData(slices.Select(x => new ChartSlice { Label = x.Label, Value = x.Value, Tag = x.Tag, ValueText = x.ValueText, Color = x.IsFree ? Palette.Free : null, IsFree = x.IsFree }));
+    }
+
+    private string FormatTreeValue(long v) => _settings.TreeMode == TreeValueMode.Files ? SizeFormat.Count(v) + " files" : _settings.Size(v);
+
+    private void ChartSelect(object? tag)
+    {
+        if (tag is Item i)
+            SetStatus($"{i.FullPath}: {_settings.Size(i.Size)}");
+    }
+
+    private void ChartActivate(object? tag)
+    {
+        if (tag is DirNode d)
+            ShowInTree(d);
+        else if (tag is StatRow r && _chartSource == "Extensions")
+            ApplyFilter(ViewFilter.ForExtensions([r.Key]));
+    }
+
+    private async Task SaveChartAsync()
+    {
+        var path = await SaveFileAsync("Save chart", "chart.png", ("PNG image", "*.png"));
+        if (path == null)
+            return;
+        ChartBase chart = _treemap.IsVisible ? _treemap : _pie.IsVisible ? _pie : _bars;
+        var size = chart.Bounds.Size;
+        chart.SavePng(path, Math.Max(800, (int)size.Width), Math.Max(500, (int)size.Height));
+        SetStatus("Chart saved: " + path);
+    }
+
+    // ---------------- details ----------------
+
+    private Control DetailsTab()
+    {
+        var bar = new WrapPanel { Orientation = Orientation.Horizontal, ItemSpacing = 6 };
+        bar.Children.Add(ToolButton("Columns…", ChooseDetailColumns));
+        bar.Children.Add(ToolButton("Export list…", () => ExportListAsync(_details, "Details")));
+        bar.Children.Add(ToolButton("Select all", () => _details.SelectAll()));
+        bar.Children.Add(ToolButton("Invert selection", () => InvertSelection(_details)));
+        bar.Children.Add(ToolButton("Go up", GoUp));
+        return WithOverview(_details, bar);
+    }
+
+    private DataGrid CreateDetailsGrid()
+    {
+        var g = GridFactory.Create(_settings.DetailColumns.Where(GridFactory.ItemColumns.ContainsKey).Select(c => GridFactory.ItemColumns[c]));
+        g.DoubleTapped += (_, _) =>
+        {
+            if (g.SelectedItem is ItemRow r)
+            {
+                if (r.Item is DirNode d)
+                    ShowInTree(d);
+                else
+                    Shell.Open(r.Path);
+            }
+        };
+        g.ContextMenu = ItemContextMenu(() => g.SelectedItems.OfType<ItemRow>().Select(r => r.Item).ToList());
+        return g;
+    }
+
+    private void UpdateDetails(ScanSession s, DirNode d)
+    {
+        IEnumerable<Item> items = _tree.Selected?.Kind == RowKind.FilesGroup ? d.Files : d.Children;
+        if (_filter != null)
+            items = items.Where(i => i is DirNode dd ? dd.FilteredFiles > 0 : _filter.Predicate((FileItem)i));
+        _details.ItemsSource = items.OrderByDescending(i => i.Size).Select(i => new ItemRow(i, s, _settings)).ToList();
+    }
+
+    private void ChooseDetailColumns()
+    {
+        var menu = new ContextMenu();
+        foreach (var (key, col) in GridFactory.ItemColumns.Where(k => k.Key is not ("Group" or "Hash")))
+        {
+            if (key == "Name")
+                continue;
+            var k = key;
+            menu.Items.Add(Check(col.Header, _settings.DetailColumns.Contains(k), on =>
+            {
+                if (on)
+                    _settings.DetailColumns.Add(k);
+                else
+                    _settings.DetailColumns.Remove(k);
+                RebuildDetailColumns();
+            }));
+        }
+        menu.Open(_details);
+    }
+
+    private void RebuildDetailColumns()
+    {
+        _details.Columns.Clear();
+        foreach (var c in _settings.DetailColumns.Where(GridFactory.ItemColumns.ContainsKey))
+            _details.Columns.Add(GridFactory.Column(GridFactory.ItemColumns[c]));
+        UpdateViews(true);
+    }
+
+    private static void InvertSelection(DataGrid g)
+    {
+        if (g.ItemsSource is not System.Collections.IEnumerable all)
+            return;
+        var selected = g.SelectedItems.Cast<object>().ToHashSet();
+        g.SelectedItems.Clear();
+        foreach (var o in all)
+            if (!selected.Contains(o))
+                g.SelectedItems.Add(o);
+    }
+
+    // ---------------- extensions / users / age ----------------
+
+    private Control StatsLayout(DataGrid grid, BarChart chart)
+    {
+        var g = new Grid { RowDefinitions = new RowDefinitions("2*,5,3*") };
+        g.Children.Add(new Border { Classes = { "panel" }, Child = chart });
+        var split = new GridSplitter { ResizeDirection = GridResizeDirection.Rows };
+        Grid.SetRow(split, 1);
+        g.Children.Add(split);
+        Grid.SetRow(grid, 2);
+        g.Children.Add(grid);
+        return g;
+    }
+
+    private Control ExtensionsTab()
+    {
+        var bar = new WrapPanel { Orientation = Orientation.Horizontal, ItemSpacing = 6 };
+        var group = new CheckBox { Content = "Group file types", IsChecked = _settings.GroupExtensions, VerticalAlignment = VerticalAlignment.Center };
+        group.IsCheckedChanged += (_, _) =>
+        {
+            _settings.GroupExtensions = group.IsChecked == true;
+            UpdateViews(true);
+        };
+        bar.Children.Add(group);
+        bar.Children.Add(ToolButton("Filter tree by selection", () =>
+        {
+            var keys = _extGrid.SelectedItems.OfType<StatItem>().Select(i => i.Row.Key).ToList();
+            if (keys.Count == 0)
+                return;
+            ApplyFilter(_settings.GroupExtensions ? ViewFilter.ForGroup(_settings.FileGroupSet, keys[0]) : ViewFilter.ForExtensions(keys));
+        }));
+        bar.Children.Add(ToolButton("Search these files", () =>
+        {
+            var keys = _extGrid.SelectedItems.OfType<StatItem>().Select(i => i.Row.Key).ToList();
+            if (keys.Count > 0 && !_settings.GroupExtensions)
+                OpenSearchFor(c => c.Include.Add(new FilterRule { Pattern = string.Join(';', keys.Select(k => k.Length == 0 ? "*." : "*." + k)), Exclude = false }));
+        }));
+        bar.Children.Add(ToolButton("Copy file list", () => CopyFilesWhereAsync(f => _extGrid.SelectedItems.OfType<StatItem>().Any(i => _settings.GroupExtensions ? _settings.FileGroupSet.GroupOf(f.Extension) == i.Row.Key : i.Row.Key == f.Extension))));
+        bar.Children.Add(ToolButton("Export list…", () => ExportStatsAsync(_extGrid, "Extensions")));
+        _extChart.ItemDoubleClicked += (_, t) =>
+        {
+            if (t is StatRow r)
+                ApplyFilter(_settings.GroupExtensions ? ViewFilter.ForGroup(_settings.FileGroupSet, r.Key) : ViewFilter.ForExtensions([r.Key]));
+        };
+        _extChart.Format = v => _settings.Size(v);
+        return WithOverview(StatsLayout(_extGrid, _extChart), bar);
+    }
+
+    private Control UsersTab()
+    {
+        var bar = new WrapPanel { Orientation = Orientation.Horizontal, ItemSpacing = 6 };
+        bar.Children.Add(ToolButton("Filter tree by selection", () =>
+        {
+            if (SelectedScan is not { } s)
+                return;
+            var names = _userGrid.SelectedItems.OfType<StatItem>().Select(i => i.Row.Key).ToList();
+            var ids = Enumerable.Range(-1, s.Owners.Count + 1).Where(id => names.Contains(id < 0 ? "(unknown)" : s.Owners.Name(id))).ToList();
+            if (ids.Count > 0)
+                ApplyFilter(ViewFilter.ForOwners(ids, string.Join(", ", names)));
+        }));
+        bar.Children.Add(ToolButton("Search their files", () =>
+        {
+            if (_userGrid.SelectedItem is StatItem i)
+                OpenSearchFor(c => c.Owner = i.Row.Key);
+        }));
+        bar.Children.Add(ToolButton("Copy file list", () =>
+        {
+            if (SelectedScan is not { } s)
+                return Task.CompletedTask;
+            var names = _userGrid.SelectedItems.OfType<StatItem>().Select(i => i.Row.Key).ToHashSet();
+            return CopyFilesWhereAsync(f => names.Contains(f.OwnerId < 0 ? "(unknown)" : s.Owners.Name(f.OwnerId)));
+        }));
+        bar.Children.Add(ToolButton("Export list…", () => ExportStatsAsync(_userGrid, "Users")));
+        var note = new TextBlock { Text = "Owners are collected when Options › Scan › \"Statistics on file owners\" is on.", Classes = { "muted" }, VerticalAlignment = VerticalAlignment.Center };
+        bar.Children.Add(note);
+        _userChart.Format = v => _settings.Size(v);
+        return WithOverview(StatsLayout(_userGrid, _userChart), bar);
+    }
+
+    private Control AgeTab()
+    {
+        var bar = new WrapPanel { Orientation = Orientation.Horizontal, ItemSpacing = 6 };
+        var basis = new ComboBox { ItemsSource = new[] { "Last modified", "Last accessed", "Created" }, SelectedIndex = (int)_settings.AgeBasis, MinWidth = 140 };
+        basis.SelectionChanged += (_, _) =>
+        {
+            _settings.AgeBasis = (AgeBasis)Math.Max(0, basis.SelectedIndex);
+            UpdateViews(true);
+        };
+        bar.Children.Add(basis);
+        bar.Children.Add(ToolButton("Search files of this interval", () =>
+        {
+            if (_ageGrid.SelectedItem is StatItem { Row: var r })
+                OpenSearchFor(c =>
+                {
+                    c.DateBasis = _settings.AgeBasis;
+                    c.NewerThan = r.From == DateTime.MinValue ? null : r.From;
+                    c.OlderThan = r.To;
+                });
+        }));
+        bar.Children.Add(ToolButton("Customize intervals…", () => OpenOptions("Age of files")));
+        bar.Children.Add(ToolButton("Export list…", () => ExportStatsAsync(_ageGrid, "Age of files")));
+        _ageChart.Format = v => _settings.Size(v);
+        return WithOverview(StatsLayout(_ageGrid, _ageChart), bar);
+    }
+
+    private Control TopTab()
+    {
+        var bar = new WrapPanel { Orientation = Orientation.Horizontal, ItemSpacing = 6 };
+        var count = new ComboBox { ItemsSource = new[] { 50, 100, 250, 500, 1000, 5000 }, SelectedItem = _settings.TopCount, MinWidth = 90 };
+        count.SelectionChanged += (_, _) =>
+        {
+            if (count.SelectedItem is int n)
+            {
+                _settings.TopCount = n;
+                UpdateViews(true);
+            }
+        };
+        bar.Children.Add(new TextBlock { Text = "Largest", VerticalAlignment = VerticalAlignment.Center });
+        bar.Children.Add(count);
+        bar.Children.Add(new TextBlock { Text = "files", VerticalAlignment = VerticalAlignment.Center });
+        bar.Children.Add(ToolButton("Export list…", () => ExportListAsync(_topGrid, "Top files")));
+        bar.Children.Add(ToolButton("Open search", () => OpenSearch(null, Search.SearchTemplate.LargeFiles)));
+        return WithOverview(_topGrid, bar);
+    }
+
+    private DataGrid CreateTopGrid()
+    {
+        var g = GridFactory.Create(new[] { "Name", "Size", "Allocated", "Modified", "Accessed", "Owner", "Path" }.Select(k => GridFactory.ItemColumns[k]));
+        g.DoubleTapped += (_, _) =>
+        {
+            if (g.SelectedItem is ItemRow r)
+                ShowInTree(r.Item);
+        };
+        g.ContextMenu = ItemContextMenu(() => g.SelectedItems.OfType<ItemRow>().Select(r => r.Item).ToList());
+        return g;
+    }
+
+    // ---------------- history ----------------
+
+    private Control HistoryTab()
+    {
+        var bar = new WrapPanel { Orientation = Orientation.Horizontal, ItemSpacing = 6 };
+        var zero = new CheckBox { Content = "Show zero point", VerticalAlignment = VerticalAlignment.Center };
+        zero.IsCheckedChanged += (_, _) =>
+        {
+            _historyChart.ZeroBased = zero.IsChecked == true;
+            _historyChart.InvalidateVisual();
+        };
+        bar.Children.Add(zero);
+        bar.Children.Add(ToolButton("Export…", async () =>
+        {
+            var p = await SaveFileAsync("Export history", "history.csv", ("CSV", "*.csv"));
+            if (p != null)
+                _history.ExportCsv(p, SelectedScan?.Root.FullPath);
+        }));
+        bar.Children.Add(ToolButton("Import…", async () =>
+        {
+            var p = await OpenFileAsync("Import history", ("CSV", "*.csv"));
+            if (p != null)
+                SetStatus($"{_history.ImportCsv(p)} history values imported.");
+            UpdateViews(true);
+        }));
+        bar.Children.Add(ToolButton("Purge…", PurgeHistoryAsync));
+        bar.Children.Add(ToolButton("Change storage location…", async () =>
+        {
+            var p = await SaveFileAsync("History data file", "history.db", ("SQLite", "*.db"));
+            if (p != null)
+            {
+                _history.MoveTo(p);
+                _settings.HistoryFile = p;
+                UpdateViews(true);
+            }
+        }));
+        bar.Children.Add(_historyInfo);
+        _historyChart.Format = v => _settings.Size(v);
+        return WithOverview(new Border { Classes = { "panel" }, Child = _historyChart }, bar);
+    }
+
+    private void UpdateHistory(ScanSession s)
+    {
+        List<HistoryPoint> pts;
+        try
+        {
+            pts = _history.Get(s.Root.FullPath);
+        }
+        catch (Exception e) when (e is IOException or Microsoft.Data.Sqlite.SqliteException)
+        {
+            _historyInfo.Text = "History not readable: " + e.Message;
+            return;
+        }
+        _historyChart.Title = "Used space of " + s.Root.FullPath;
+        var series = new List<LineChart.Series>
+        {
+            new("Size", Palette.At(0), [.. pts.Select(p => (p.At, p.Size))]),
+            new("Allocated", Palette.At(1), [.. pts.Select(p => (p.At, p.Allocated))]),
+        };
+        if (pts.Any(p => p.VolumeTotal > 0) && s.Root.Parent == null && s.Root.FullPath.Length <= 3)
+            series.Add(new("Free on drive", Palette.At(2), [.. pts.Where(p => p.VolumeTotal > 0).Select(p => (p.At, p.VolumeFree))]));
+        _historyChart.SetData(series);
+        _historyInfo.Text = pts.Count == 0 ? "" : $"{pts.Count} scans since {pts[0].At:d}  ·  data file {_history.File}";
+    }
+
+    private async Task PurgeHistoryAsync()
+    {
+        var t = await Dialogs.InputDialog.AskAsync(this, "Purge history", "Remove history values older than this many days:", "365");
+        if (t == null || !int.TryParse(t, out var days))
+            return;
+        var n = _history.Purge(SelectedScan?.Root.FullPath, DateTime.Now.AddDays(-days));
+        SetStatus($"{n} history values removed.");
+        UpdateViews(true);
+    }
+
+    // ---------------- view filter ----------------
+
+    private void ApplyFilter(ViewFilter f)
+    {
+        _filter = f;
+        foreach (var s in _tree.Scans)
+            f.Apply(s.Root);
+        _tree.Filtered = true;
+        _tree.FileFilter = f.Predicate;
+        _tree.Rebuild();
+        _filterText.Text = "Filter: " + f.Description;
+        _filterBar.IsVisible = true;
+        UpdateViews(true);
+    }
+
+    private void ClearFilter()
+    {
+        _filter = null;
+        _tree.Filtered = false;
+        _tree.FileFilter = null;
+        _filterBar.IsVisible = false;
+        _tree.Rebuild();
+        UpdateViews(true);
+    }
+}

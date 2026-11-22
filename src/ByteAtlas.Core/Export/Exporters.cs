@@ -81,7 +81,8 @@ public static class Exporters
                 var len = cells[r][i].Length + (i == 0 && t.IsTree ? t.Rows[r].Level * 2 : 0);
                 widths[i] = Math.Max(widths[i], len);
             }
-            widths[i] = Math.Min(widths[i], i == 0 ? 120 : 40);
+            if (widths[i] > (i == 0 ? 120 : 40))
+                widths[i] = i == 0 ? 120 : 40;
         }
         void Line(IReadOnlyList<string> c, int level)
         {

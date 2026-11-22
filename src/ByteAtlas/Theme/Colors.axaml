@@ -7,6 +7,15 @@
   <ResourceDictionary.ThemeDictionaries>
 
     <ResourceDictionary x:Key="Dark">
+      <SolidColorBrush x:Key="SizeBarBrush" Color="#FF35619A" />
+      <SolidColorBrush x:Key="SizeBarFullBrush" Color="#FF3D7FD6" />
+      <SolidColorBrush x:Key="RowHoverBrush" Color="#FF2A2D33" />
+      <SolidColorBrush x:Key="RowSelectedBrush" Color="#FF2F4A70" />
+      <SolidColorBrush x:Key="CompressedBrush" Color="#FF6FB1FF" />
+      <SolidColorBrush x:Key="LongPathBrush" Color="#FFFF6B6B" />
+      <SolidColorBrush x:Key="GrowBrush" Color="#FFFF8A7A" />
+      <SolidColorBrush x:Key="ShrinkBrush" Color="#FF7CD992" />
+      <SolidColorBrush x:Key="GlyphBrush" Color="#FF8E9097" />
       <SolidColorBrush x:Key="QualityGoodBrush" Color="#FF2F6B3A" />
       <SolidColorBrush x:Key="QualityFairBrush" Color="#FF7A6A24" />
       <SolidColorBrush x:Key="QualityPoorBrush" Color="#FF7E3434" />
@@ -112,6 +121,15 @@
     </ResourceDictionary>
 
     <ResourceDictionary x:Key="Light">
+      <SolidColorBrush x:Key="SizeBarBrush" Color="#FFB9D2F2" />
+      <SolidColorBrush x:Key="SizeBarFullBrush" Color="#FF2F6FC4" />
+      <SolidColorBrush x:Key="RowHoverBrush" Color="#FFEDEFF3" />
+      <SolidColorBrush x:Key="RowSelectedBrush" Color="#FFCFE0F7" />
+      <SolidColorBrush x:Key="CompressedBrush" Color="#FF1F5FC0" />
+      <SolidColorBrush x:Key="LongPathBrush" Color="#FFC62828" />
+      <SolidColorBrush x:Key="GrowBrush" Color="#FFC62828" />
+      <SolidColorBrush x:Key="ShrinkBrush" Color="#FF2E7D32" />
+      <SolidColorBrush x:Key="GlyphBrush" Color="#FF6A6D74" />
       <SolidColorBrush x:Key="QualityGoodBrush" Color="#FF9FE0A8" />
       <SolidColorBrush x:Key="QualityFairBrush" Color="#FFF2E28A" />
       <SolidColorBrush x:Key="QualityPoorBrush" Color="#FFF2A0A0" />

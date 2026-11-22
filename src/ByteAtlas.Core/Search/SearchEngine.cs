@@ -222,7 +222,7 @@ public static class SearchEngine
             }
             else if (fs.Length > Part)
                 n += fs.Read(buf, n, Part);
-            return Convert.ToHexString(MD5.HashData(buf.AsSpan(0, n)));
+            return Convert.ToHexString(SHA256.HashData(buf.AsSpan(0, n)));
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {

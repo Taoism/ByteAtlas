@@ -123,4 +123,38 @@
     <Setter Property="FontSize" Value="12.5" />
     <Setter Property="MinHeight" Value="28" />
   </Style>
+  <Style Selector="DataGridCell.right">
+    <Setter Property="HorizontalContentAlignment" Value="Right" />
+  </Style>
+  <Style Selector="DataGridCell.right TextBlock">
+    <Setter Property="HorizontalAlignment" Value="Right" />
+  </Style>
+  <Style Selector="ListBox.sizeTree">
+    <Setter Property="Background" Value="{DynamicResource PanelBrush}" />
+  </Style>
+  <Style Selector="ListBox.sizeTree ListBoxItem">
+    <Setter Property="Padding" Value="0" />
+  </Style>
+  <Style Selector="ListBox.sizeTree ListBoxItem:selected /template/ ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource RowSelectedBrush}" />
+  </Style>
+  <Style Selector="ListBox.sizeTree ListBoxItem:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource RowHoverBrush}" />
+  </Style>
+  <Style Selector="Border.strip">
+    <Setter Property="Background" Value="{DynamicResource PanelBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource EdgeBrush}" />
+    <Setter Property="BorderThickness" Value="0,0,0,1" />
+    <Setter Property="Padding" Value="10,6" />
+  </Style>
+  <Style Selector="Button.tool">
+    <Setter Property="Padding" Value="8,3" />
+    <Setter Property="MinHeight" Value="28" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+  </Style>
+  <Style Selector="TextBlock.big">
+    <Setter Property="FontSize" Value="17" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
 </Styles>
