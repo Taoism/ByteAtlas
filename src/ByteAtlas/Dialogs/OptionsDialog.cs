@@ -7,6 +7,8 @@ using ByteAtlas.Export;
 using ByteAtlas.Model;
 using ByteAtlas.Scanning;
 
+using ByteAtlas.Controls;
+
 namespace ByteAtlas.Dialogs;
 
 /// <summary>All settings, on pages: View, Directory tree, File groups, Age of files, Charts, Scan, Filter, Export, System.</summary>
@@ -14,7 +16,7 @@ public sealed class OptionsDialog : DialogWindow
 {
     private readonly AppSettings _s;
     private readonly List<Action> _apply = [];
-    private readonly ListBox _pages = new() { Width = 170 };
+    private readonly ListBox _pages = new();
     private readonly ContentControl _page = new();
     private readonly Dictionary<string, Control> _content = [];
 
@@ -30,11 +32,12 @@ public sealed class OptionsDialog : DialogWindow
         Add("Filter", FilterPage());
         Add("Export", ExportPage());
         Add("System", SystemPage());
+        Resizing.Remember(this, "options", 960, 700, 640, 420);
         _pages.ItemsSource = _content.Keys.ToList();
         _pages.SelectionChanged += (_, _) =>
         {
             if (_pages.SelectedItem is string k)
-                _page.Content = new ScrollViewer { Content = _content[k], Height = 520, Padding = new Thickness(0, 0, 12, 0) };
+                _page.Content = new ScrollViewer { Content = _content[k], Padding = new Thickness(0, 0, 12, 0) };
         };
         _pages.SelectedItem = page != null && _content.ContainsKey(page) ? page : "View";
 
@@ -56,8 +59,9 @@ public sealed class OptionsDialog : DialogWindow
         DockPanel.SetDock(tools, Dock.Bottom);
         side.Children.Add(tools);
         side.Children.Add(new Border { Classes = { "panel" }, Child = _pages });
-        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,16,*") };
+        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("190,10,*") };
         grid.Children.Add(side);
+        Resizing.Split(grid, 1, 0, columns: true, "options.pages");
         Grid.SetColumn(_page, 2);
         grid.Children.Add(_page);
         SetBody(grid);

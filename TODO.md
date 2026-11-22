@@ -26,6 +26,17 @@ clean-room, open source. Version 0.1.0 (2026-11-21).
   command prompt, properties, NTFS compress / decompress, options import / export / reset.
 - CLI: scan / compare / search / history with exports, index, history.
 
+## Done (0.1.1, 2026-11-21)
+
+- MFT: 4 parallel unbuffered readers on SSDs, 1 on spinning disks (seek-penalty query), struct records, parallel
+  owner lookups, server GC: C: (4.4 M records) 12.8 s -> 6.3-7.7 s; folder owners; tree built off-screen and
+  swapped in (UI never reads a half-built list); `--verbose` timings.
+- Sub folders: quick folder walk first (2 s budget), MFT only for big folders (1.6 GB folder: 9.5 s -> 0.1 s).
+- Future time stamps: ignored for folder dates, own "In the future" row in Age of Files.
+- Resizable everything, remembered (settings Layout): drive list / tree, tree / tabs, tree value column (header
+  splitter), chart / list on Extensions / Users / Age, all grid column widths, File Search (size + panel), Bulk
+  rename (size, panel, rules list), Options (size, page list), list / text dialogs, every dialog can grow.
+
 ## Open
 
 - [ ] Remote sources: SharePoint / OneDrive (Graph), Amazon S3, Azure Blob, WebDAV (beyond mapped drives),
@@ -37,8 +48,6 @@ clean-room, open source. Version 0.1.0 (2026-11-21).
 - [ ] Windows 10/11 compact compression (WOF LZX / XPress): show the format, compress with it.
 - [ ] "Add column for this extension / user / age interval to Details".
 - [ ] Print preview inside the app (currently: PDF opened in the viewer).
-- [ ] MFT scan of a small sub folder reads the whole MFT (~9 s): walk folders when the folder is small.
-- [ ] Owners of folders in MFT mode (files have them).
 - [ ] Release: publish GUI + CLI side by side (GUI looks for byteatlas-cli next to itself), installer, portable zip,
       "create portable installation", GitHub repo + release (ask first).
 - [ ] Translations.

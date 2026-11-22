@@ -5,6 +5,8 @@ using Avalonia.Data;
 using Avalonia.Layout;
 using ByteAtlas.Operations;
 
+using ByteAtlas.Controls;
+
 namespace ByteAtlas.Dialogs;
 
 /// <summary>Bulk rename: an ordered list of rules, live preview, execute and undo.</summary>
@@ -12,7 +14,7 @@ public sealed class RenameWindow : Window
 {
     private readonly BulkRenamer _renamer = new();
     private readonly List<string> _paths;
-    private readonly ListBox _rules = new() { Height = 170 };
+    private readonly ListBox _rules = new();
     private readonly DataGrid _preview;
     private readonly ContentControl _editor = new();
     private readonly TextBlock _status = new() { VerticalAlignment = VerticalAlignment.Center };
@@ -25,14 +27,14 @@ public sealed class RenameWindow : Window
         _paths = paths;
         Title = "Bulk rename";
         Icon = MainWindow.AppIcon;
-        Width = 1100;
-        Height = 760;
+        Resizing.Remember(this, "rename", 1100, 760, 760, 480);
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
 
         _preview = new DataGrid { IsReadOnly = true, AutoGenerateColumns = false, CanUserSortColumns = true };
         _preview.Columns.Add(new DataGridTextColumn { Header = "Original name", Binding = new Binding(nameof(RenamePreview.OriginalName)), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
         _preview.Columns.Add(new DataGridTextColumn { Header = "New name", Binding = new Binding(nameof(RenamePreview.NewName)), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
         _preview.Columns.Add(new DataGridTextColumn { Header = "Problem", Binding = new Binding(nameof(RenamePreview.Problem)), Width = new DataGridLength(140) });
+        Resizing.RememberColumns(_preview, "rename");
 
         _rules.SelectionChanged += (_, _) => ShowEditor();
 
@@ -78,11 +80,19 @@ public sealed class RenameWindow : Window
             UpdatePreview();
         });
 
-        var left = new StackPanel { Spacing = 8, Width = 420 };
+        // rules list | splitter | buttons + rule editor
+        var left = new Grid { RowDefinitions = new RowDefinitions("Auto,200,8,Auto,*") };
         left.Children.Add(new TextBlock { Text = "Rules (applied top to bottom; untick to skip)", Classes = { "header" } });
-        left.Children.Add(new Border { Classes = { "panel" }, Child = _rules });
+        var rulesBorder = new Border { Classes = { "panel" }, Child = _rules };
+        Grid.SetRow(rulesBorder, 1);
+        left.Children.Add(rulesBorder);
+        Resizing.Split(left, 2, 1, columns: false, "rename.rules");
+        buttons.Margin = new Thickness(0, 0, 0, 8);
+        Grid.SetRow(buttons, 3);
         left.Children.Add(buttons);
-        left.Children.Add(new Border { Classes = { "card" }, Child = _editor });
+        var editor = new Border { Classes = { "card" }, Child = new ScrollViewer { Content = _editor } };
+        Grid.SetRow(editor, 4);
+        left.Children.Add(editor);
 
         var right = new DockPanel();
         var bottom = MainWindow.DialogRow(8, execute, undo, _status);
@@ -94,8 +104,9 @@ public sealed class RenameWindow : Window
         right.Children.Add(head);
         right.Children.Add(_preview);
 
-        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,14,*"), Margin = new Thickness(12) };
+        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("440,10,*"), Margin = new Thickness(12) };
         grid.Children.Add(left);
+        Resizing.Split(grid, 1, 0, columns: true, "rename.left");
         Grid.SetColumn(right, 2);
         grid.Children.Add(right);
         Content = grid;

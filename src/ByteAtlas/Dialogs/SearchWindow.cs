@@ -12,6 +12,8 @@ using ByteAtlas.Scanning;
 using ByteAtlas.Search;
 using ByteAtlas.Views;
 
+using ByteAtlas.Controls;
+
 namespace ByteAtlas.Dialogs;
 
 /// <summary>File search: templates (large, old, temporary, duplicate, long paths) and custom criteria, with bulk actions.</summary>
@@ -68,8 +70,7 @@ public sealed class SearchWindow : Window
         _scans = scans;
         Title = "ByteAtlas File Search";
         Icon = MainWindow.AppIcon;
-        Width = 1250;
-        Height = 820;
+        Resizing.Remember(this, "search", 1250, 820, 800, 500);
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         _paths.Text = string.Join(Environment.NewLine, paths);
 
@@ -117,7 +118,7 @@ public sealed class SearchWindow : Window
         criteria.Children.Add(H("Duplicates"));
         criteria.Children.Add(_dupPanel);
 
-        var left = new DockPanel { Width = 380 };
+        var left = new DockPanel();
         var tpl = new Border { Classes = { "panel" }, Child = _templates, Margin = new Thickness(0, 0, 0, 8) };
         DockPanel.SetDock(tpl, Dock.Top);
         left.Children.Add(tpl);
@@ -133,6 +134,7 @@ public sealed class SearchWindow : Window
                 ShowItem?.Invoke(this, r.Item);
         };
         _grid.ContextMenu = ResultMenu();
+        Resizing.RememberColumns(_grid, "search");
 
         var actions = new WrapPanel { Orientation = Orientation.Horizontal, ItemSpacing = 6, LineSpacing = 4 };
         actions.Children.Add(MainWindow.ToolButton("Delete…", () => DeleteAsync(true)));
@@ -157,8 +159,9 @@ public sealed class SearchWindow : Window
         right.Children.Add(bottom);
         right.Children.Add(_grid);
 
-        var body = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,12,*"), Margin = new Thickness(12) };
+        var body = new Grid { ColumnDefinitions = new ColumnDefinitions("380,10,*"), Margin = new Thickness(12) };
         body.Children.Add(left);
+        Resizing.Split(body, 1, 0, columns: true, "search.left");
         Grid.SetColumn(right, 2);
         body.Children.Add(right);
         Content = body;

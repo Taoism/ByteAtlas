@@ -5,6 +5,8 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using ByteAtlas.Operations;
 
+using ByteAtlas.Controls;
+
 namespace ByteAtlas.Dialogs;
 
 /// <summary>Asks for one line of text.</summary>
@@ -37,9 +39,16 @@ public sealed class ListDialog : DialogWindow
 
     private ListDialog(string title, string prompt, List<string> items, string ok) : base(title, 560)
     {
-        _list = new ListBox { ItemsSource = items, SelectedIndex = 0, MaxHeight = 360 };
+        _list = new ListBox { ItemsSource = items, SelectedIndex = 0 };
         _list.DoubleTapped += (_, _) => Close(true);
-        SetBody(Column(8, Label(prompt), _list), ok);
+        var body = new DockPanel();
+        var p = Label(prompt);
+        p.Margin = new Thickness(0, 0, 0, 8);
+        DockPanel.SetDock(p, Dock.Top);
+        body.Children.Add(p);
+        body.Children.Add(_list);
+        SetBody(body, ok);
+        Resizing.Remember(this, "list", 560, 440, 360, 240);
     }
 
     public static async Task<int> PickAsync(Window owner, string title, string prompt, List<string> items, string ok = "OK")
@@ -60,10 +69,10 @@ public sealed class TextViewDialog : DialogWindow
             IsReadOnly = true,
             AcceptsReturn = true,
             TextWrapping = TextWrapping.NoWrap,
-            Height = 440,
             Classes = { "mono" },
         };
         SetBody(box, "Close", null);
+        Resizing.Remember(this, "textview", 860, 600, 400, 260);
     }
 }
 

@@ -405,6 +405,7 @@ public sealed partial class MainWindow
             }
         };
         g.ContextMenu = ItemContextMenu(() => g.SelectedItems.OfType<ItemRow>().Select(r => r.Item).ToList());
+        Resizing.RememberColumns(g, "details");
         return g;
     }
 
@@ -457,15 +458,14 @@ public sealed partial class MainWindow
 
     // ---------------- extensions / users / age ----------------
 
-    private Control StatsLayout(DataGrid grid, BarChart chart)
+    private static Grid StatsLayout(DataGrid grid, BarChart chart, string key)
     {
-        var g = new Grid { RowDefinitions = new RowDefinitions("2*,5,3*") };
+        var g = new Grid { RowDefinitions = new RowDefinitions("2*,6,3*") };
         g.Children.Add(new Border { Classes = { "panel" }, Child = chart });
-        var split = new GridSplitter { ResizeDirection = GridResizeDirection.Rows };
-        Grid.SetRow(split, 1);
-        g.Children.Add(split);
+        Resizing.Split(g, 1, 0, columns: false, key + ".chart");
         Grid.SetRow(grid, 2);
         g.Children.Add(grid);
+        Resizing.RememberColumns(grid, key);
         return g;
     }
 
@@ -500,7 +500,7 @@ public sealed partial class MainWindow
                 ApplyFilter(_settings.GroupExtensions ? ViewFilter.ForGroup(_settings.FileGroupSet, r.Key) : ViewFilter.ForExtensions([r.Key]));
         };
         _extChart.Format = v => _settings.Size(v);
-        return WithOverview(StatsLayout(_extGrid, _extChart), bar);
+        return WithOverview(StatsLayout(_extGrid, _extChart, "extensions"), bar);
     }
 
     private Control UsersTab()
@@ -531,7 +531,7 @@ public sealed partial class MainWindow
         var note = new TextBlock { Text = "Owners are collected when Options › Scan › \"Statistics on file owners\" is on.", Classes = { "muted" }, VerticalAlignment = VerticalAlignment.Center };
         bar.Children.Add(note);
         _userChart.Format = v => _settings.Size(v);
-        return WithOverview(StatsLayout(_userGrid, _userChart), bar);
+        return WithOverview(StatsLayout(_userGrid, _userChart, "users"), bar);
     }
 
     private Control AgeTab()
@@ -557,7 +557,7 @@ public sealed partial class MainWindow
         bar.Children.Add(ToolButton("Customize intervals…", () => OpenOptions("Age of files")));
         bar.Children.Add(ToolButton("Export list…", () => ExportStatsAsync(_ageGrid, "Age of files")));
         _ageChart.Format = v => _settings.Size(v);
-        return WithOverview(StatsLayout(_ageGrid, _ageChart), bar);
+        return WithOverview(StatsLayout(_ageGrid, _ageChart, "ages"), bar);
     }
 
     private Control TopTab()
@@ -589,6 +589,7 @@ public sealed partial class MainWindow
                 ShowInTree(r.Item);
         };
         g.ContextMenu = ItemContextMenu(() => g.SelectedItems.OfType<ItemRow>().Select(r => r.Item).ToList());
+        Resizing.RememberColumns(g, "top");
         return g;
     }
 

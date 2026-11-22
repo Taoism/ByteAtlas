@@ -639,20 +639,25 @@ public sealed class MftScanner
         }
     }
 
-    /// <summary>Native memory aligned to 4 KB (unbuffered volume reads need sector alignment).</summary>
-    private sealed unsafe class AlignedBuffer(int size) : IDisposable
+    /// <summary>A buffer aligned to 4 KB (unbuffered volume reads need sector alignment): a pinned array, sliced.</summary>
+    private sealed class AlignedBuffer(int size) : IDisposable
     {
-        private void* _p = NativeMemory.AlignedAlloc((nuint)size, 4096);
+        private const int Alignment = 4096;
+        private readonly byte[] _array = GC.AllocateUninitializedArray<byte>(size + Alignment, pinned: true);
 
-        public Span<byte> Span => new(_p, size);
+        public Span<byte> Span
+        {
+            get
+            {
+                var address = (long)Marshal.UnsafeAddrOfPinnedArrayElement(_array, 0);
+                var offset = (int)((Alignment - address % Alignment) % Alignment);
+                return _array.AsSpan(offset, size);
+            }
+        }
 
         public void Dispose()
         {
-            if (_p != null)
-            {
-                NativeMemory.AlignedFree(_p);
-                _p = null;
-            }
+            // pinned arrays live on the pinned object heap: nothing to free by hand
         }
     }
 }

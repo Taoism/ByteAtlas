@@ -34,7 +34,7 @@ public sealed class DriveListPanel : UserControl
         var dock = new DockPanel();
         DockPanel.SetDock(header, Dock.Top);
         dock.Children.Add(header);
-        dock.Children.Add(new ScrollViewer { Content = _list, MaxHeight = 230 });
+        dock.Children.Add(new ScrollViewer { Content = _list });
         Content = new Border { Classes = { "panel" }, Padding = new Thickness(6), Child = dock };
         Refresh();
     }

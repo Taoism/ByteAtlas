@@ -71,8 +71,48 @@ public sealed class SizeTree : UserControl
                 new Setter(MinHeightProperty, 0.0),
             },
         });
-        Content = _list;
+        // header: "Name" and the value column, whose width is dragged with the splitter between them
+        _valueHeader = new TextBlock { HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right, Margin = new Thickness(0, 0, 6, 0), Classes = { "muted" }, FontSize = 11.5 };
+        var header = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions($"*,6,{settings.TreeValueWidth.ToString(System.Globalization.CultureInfo.InvariantCulture)}"),
+            Height = 22,
+        };
+        header.Children.Add(new TextBlock { Text = "Name", Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center, Classes = { "muted" }, FontSize = 11.5 });
+        var split = new GridSplitter { ResizeDirection = GridResizeDirection.Columns, Background = Brushes.Transparent };
+        Grid.SetColumn(split, 1);
+        header.Children.Add(split);
+        _valueHeader.VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center;
+        Grid.SetColumn(_valueHeader, 2);
+        header.Children.Add(_valueHeader);
+        split.DragDelta += (_, _) =>
+        {
+            Settings.TreeValueWidth = Math.Clamp(header.ColumnDefinitions[2].ActualWidth, 50, 400);
+            foreach (var r in _rows)
+                r.Invalidate();
+        };
+        var headerBorder = new Border { Child = header, BorderThickness = new Thickness(0, 0, 0, 1) };
+        headerBorder.Bind(Border.BorderBrushProperty, headerBorder.GetResourceObservable("EdgeBrush"));
+        var dock = new DockPanel();
+        DockPanel.SetDock(headerBorder, Dock.Top);
+        dock.Children.Add(headerBorder);
+        dock.Children.Add(_list);
+        Content = dock;
+        UpdateHeader();
     }
+
+    private readonly TextBlock _valueHeader;
+
+    private void UpdateHeader() => _valueHeader.Text = (ShowChanges ? "Change  ·  " : "") + Settings.TreeMode switch
+    {
+        TreeValueMode.Allocated => "Allocated",
+        TreeValueMode.Files => "Files",
+        TreeValueMode.Percent => "Percent",
+        _ => "Size",
+    };
+
+    /// <summary>Width of one value column (resizable in the header).</summary>
+    public double ValueWidth => Settings.TreeValueWidth;
 
     public AppSettings Settings { get; }
 
@@ -196,6 +236,7 @@ public sealed class SizeTree : UserControl
         foreach (var s in Scans)
             Add(list, s, s.Root, RowKind.Folder, 0);
         Sync(list);
+        UpdateHeader();
         foreach (var r in _rows)
             r.Invalidate();
     }
@@ -425,7 +466,6 @@ public sealed class TreeRowView : Control
     }
 
     private const double Indent = 16;
-    private const double ValueWidth = 92;
 
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
@@ -467,7 +507,7 @@ public sealed class TreeRowView : Control
 
         // size bar behind icon and name (share of the parent folder)
         var showChange = _tree.ShowChanges && r.Folder?.CompareSize != null;
-        var valueW = showChange ? ValueWidth * 2 : ValueWidth;
+        var valueW = showChange ? _tree.ValueWidth * 2 : _tree.ValueWidth;
         var barLeft = x - 1;
         var barRight = w - valueW - 8;
         var frac = _tree.Fraction(r);
@@ -527,7 +567,7 @@ public sealed class TreeRowView : Control
         if (r.Scan.State is ScanState.Scanning or ScanState.Paused && r.Folder?.Pending == true)
             valueText = "… " + valueText;
         var vt = Text(valueText, r.Kind == RowKind.File ? muted : text, false);
-        ctx.DrawText(vt, new Point(w - (showChange ? ValueWidth : 0) - 6 - vt.Width, (h - vt.Height) / 2));
+        ctx.DrawText(vt, new Point(w - (showChange ? _tree.ValueWidth : 0) - 6 - vt.Width, (h - vt.Height) / 2));
         if (showChange)
         {
             var change = r.Folder!.CompareSize == -1 ? r.Folder.Size : r.Folder.SizeChange;

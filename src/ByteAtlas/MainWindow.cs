@@ -80,17 +80,21 @@ public sealed partial class MainWindow : Window
 
         _drives = new DriveListPanel(settings);
         _drives.ScanRequested += (_, p) => StartScan(p);
-        _drives.IsVisible = settings.ShowDriveList;
 
         _details = CreateDetailsGrid();
         _topGrid = CreateTopGrid();
         BuildTabs();
 
-        var left = new Grid { RowDefinitions = new RowDefinitions("Auto,*") };
-        left.Children.Add(_drives);
-        var treeBorder = new Border { Classes = { "panel" }, Child = _tree, Margin = new Thickness(0, 4, 0, 0) };
-        Grid.SetRow(treeBorder, 1);
-        left.Children.Add(treeBorder);
+        // drive list above the tree, with a splitter between them
+        _left = new Grid { RowDefinitions = new RowDefinitions("230,6,*") };
+        _left.Children.Add(_drives);
+        _driveSplit = Resizing.Split(_left, 1, 0, columns: false, "main.drives");
+        _driveRow = _left.RowDefinitions[0].Height;
+        var treeBorder = new Border { Classes = { "panel" }, Child = _tree };
+        Grid.SetRow(treeBorder, 2);
+        _left.Children.Add(treeBorder);
+        ShowDriveList(settings.ShowDriveList);
+        var left = _left;
 
         _body = new Grid { ColumnDefinitions = new ColumnDefinitions($"{settings.TreeWidth.ToString(System.Globalization.CultureInfo.InvariantCulture)},5,*"), Margin = new Thickness(8, 4, 8, 4) };
         _body.Children.Add(left);
@@ -196,6 +200,20 @@ public sealed partial class MainWindow : Window
     }
 
     private void SetStatus(string text) => _status.Text = text;
+
+    private Grid _left = new();
+    private GridSplitter? _driveSplit;
+    private GridLength _driveRow = new(230);
+
+    private void ShowDriveList(bool show)
+    {
+        if (!show && _left.RowDefinitions[0].Height.Value > 0)
+            _driveRow = _left.RowDefinitions[0].Height;
+        _drives.IsVisible = show;
+        if (_driveSplit != null)
+            _driveSplit.IsVisible = show;
+        _left.RowDefinitions[0].Height = show ? (_driveRow.Value > 20 ? _driveRow : new GridLength(230)) : new GridLength(0);
+    }
 
     private void SaveWindowState()
     {
@@ -495,7 +513,7 @@ public sealed partial class MainWindow : Window
             Check("Dri_ve list", _settings.ShowDriveList, v =>
             {
                 _settings.ShowDriveList = v;
-                _drives.IsVisible = v;
+                ShowDriveList(v);
             }),
             Check("Status _bar", _settings.ShowStatusBar, v =>
             {

@@ -102,6 +102,16 @@ public sealed class AppSettings
     public int? WindowX { get; set; }
     public int? WindowY { get; set; }
     public double TreeWidth { get; set; } = 480;
+
+    /// <summary>Width of the value column(s) in the directory tree.</summary>
+    public double TreeValueWidth { get; set; } = 96;
+
+    /// <summary>Window sizes, splitter positions and column widths by key (see Controls.Resizing).</summary>
+    public Dictionary<string, double> Layout { get; set; } = [];
+
+    /// <summary>The settings of this run (for dialogs that remember their size).</summary>
+    [JsonIgnore]
+    public static AppSettings Current { get; private set; } = new();
     public string LastTab { get; set; } = "Chart";
 
     public sealed class AgeInterval
@@ -137,13 +147,21 @@ public sealed class AppSettings
         {
             var path = file ?? FilePath;
             if (File.Exists(path))
-                return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(path), Json) ?? new AppSettings();
+                return Keep(JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(path), Json) ?? new AppSettings(), file);
         }
         catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException)
         {
             // fall back to defaults
         }
-        return new AppSettings();
+        return Keep(new AppSettings(), file);
+    }
+
+    // the app's own settings file becomes Current; an imported file does not
+    private static AppSettings Keep(AppSettings s, string? file)
+    {
+        if (file == null)
+            Current = s;
+        return s;
     }
 
     public void Save(string? file = null)

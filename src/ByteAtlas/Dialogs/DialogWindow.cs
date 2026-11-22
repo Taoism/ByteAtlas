@@ -18,7 +18,7 @@ public class DialogWindow : Window
         Title = title;
         Width = width;
         SizeToContent = SizeToContent.Height;
-        CanResize = false;
+        CanResize = true; // every dialog can be made bigger (long paths, long lists)
         ShowInTaskbar = false;
         // CenterOwner can land on the primary screen when the owner is on another monitor: place it ourselves
         WindowStartupLocation = WindowStartupLocation.Manual;

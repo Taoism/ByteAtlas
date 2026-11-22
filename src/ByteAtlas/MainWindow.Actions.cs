@@ -293,7 +293,7 @@ public sealed partial class MainWindow
             return;
         _settings.Save();
         App.ApplyTheme(_settings.Theme);
-        _drives.IsVisible = _settings.ShowDriveList;
+        ShowDriveList(_settings.ShowDriveList);
         _statusBar.IsVisible = _settings.ShowStatusBar;
         ApplyChartSettings();
         RebuildDetailColumns();
