@@ -1,4 +1,6 @@
 using System.Buffers.Binary;
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Text;
@@ -9,7 +11,8 @@ namespace ByteAtlas.Scanning;
 
 /// <summary>
 /// Reads the NTFS master file table of a local volume directly (needs administrator rights).
-/// Far faster than walking folders: every file record is read in one sequential pass.
+/// Far faster than walking folders: the table is read sequentially (the next chunk is read while the
+/// current one is parsed on all cores) and the tree is built from it in memory.
 /// </summary>
 [SupportedOSPlatform("windows")]
 public sealed class MftScanner
@@ -47,29 +50,38 @@ public sealed class MftScanner
         return true;
     }
 
-    private static Microsoft.Win32.SafeHandles.SafeFileHandle OpenVolume(string root) =>
-        Win32.CreateFile(@"\\.\" + root[..2], Win32.GENERIC_READ, Win32.FILE_SHARE_READ | Win32.FILE_SHARE_WRITE | Win32.FILE_SHARE_DELETE, IntPtr.Zero, Win32.OPEN_EXISTING, 0, IntPtr.Zero);
+    private static Microsoft.Win32.SafeHandles.SafeFileHandle OpenVolume(string root, bool unbuffered = false) =>
+        Win32.CreateFile(@"\\.\" + root[..2], Win32.GENERIC_READ, Win32.FILE_SHARE_READ | Win32.FILE_SHARE_WRITE | Win32.FILE_SHARE_DELETE, IntPtr.Zero, Win32.OPEN_EXISTING,
+            unbuffered ? FileFlagNoBuffering : 0, IntPtr.Zero);
 
-    // ---------- record data collected in the pass ----------
+    // reads bypass the file cache: no 4 GB copied through memory for a big table (needs sector-aligned buffers)
+    private const uint FileFlagNoBuffering = 0x20000000;
 
-    private sealed class Rec
+    // ---------- record data collected in the pass (one compact struct per record) ----------
+
+    private struct Rec
     {
         public string? Name;
-        public int Parent = -1;
-        public byte NameRank; // 3 win32+dos, 1 win32, 0 posix, 2 dos (lower wins later)
         public List<(int Parent, string Name)>? Links;
-        public bool IsDir;
         public long Size, Alloc, StreamSize, StreamAlloc;
-        public int Streams;
         public long Created, Modified, Accessed;
+        public int Parent;
+        public int Streams;
         public uint Attr;
         public uint SecurityId;
+        public byte NameRank; // namespace of the kept name; 9 = only a DOS 8.3 alias so far
+        public bool IsDir;
+        public bool InUse;
     }
 
-    private int _recordSize, _cluster, _sectorSize;
+    private const int RootRecord = 5;
+    private const int UsaStride = 512; // NTFS update sequence stride, whatever the sector size
+
+    private int _recordSize, _cluster;
 
     public void Run(CancellationToken ct)
     {
+        var watch = Stopwatch.StartNew();
         var vol = VolumeInfo.Get(_s.Path);
         using var h = OpenVolume(vol.Root);
         if (h.IsInvalid)
@@ -80,8 +92,8 @@ public sealed class MftScanner
         ReadAt(fs, 0, boot);
         if (Encoding.ASCII.GetString(boot, 3, 4) != "NTFS")
             throw new IOException("Not an NTFS volume.");
-        _sectorSize = BinaryPrimitives.ReadUInt16LittleEndian(boot.AsSpan(0x0B));
-        _cluster = _sectorSize * boot[0x0D];
+        var sectorSize = BinaryPrimitives.ReadUInt16LittleEndian(boot.AsSpan(0x0B));
+        _cluster = sectorSize * boot[0x0D];
         var mftLcn = BinaryPrimitives.ReadInt64LittleEndian(boot.AsSpan(0x30));
         var cpr = (sbyte)boot[0x40];
         _recordSize = cpr > 0 ? cpr * _cluster : 1 << -cpr;
@@ -97,45 +109,85 @@ public sealed class MftScanner
         long mftBytes = 0;
         var extensionRefs = new List<long>();
         ParseMftDataRuns(rec0, runs, ref mftBytes, extensionRefs);
-        if (extensionRefs.Count > 0)
+        foreach (var r in extensionRefs)
         {
             // fragmented $MFT: the remaining runs sit in extension records (inside the part already known)
-            foreach (var r in extensionRefs)
+            var buf = new byte[_recordSize];
+            if (ReadRecordFromRuns(fs, runs, r, buf) && Fixup(buf))
             {
-                var buf = new byte[_recordSize];
-                if (ReadRecordFromRuns(fs, runs, r, buf) && Fixup(buf))
-                {
-                    long dummy = 0;
-                    ParseMftDataRuns(buf, runs, ref dummy, null);
-                }
+                long dummy = 0;
+                ParseMftDataRuns(buf, runs, ref dummy, null);
             }
         }
         var total = (int)(mftBytes / _recordSize);
-        var recs = new Rec?[total];
+        var recs = new Rec[total];
+        var extensions = new ConcurrentQueue<(int Index, byte[] Data)>();
 
-        // sequential pass over the table, 4 MB at a time
-        var chunk = new byte[Math.Max(_recordSize, 4 << 20) / _recordSize * _recordSize];
-        long index = 0;
+        // the table as 4 MB pieces: read piece i+1 while piece i is parsed in parallel
+        var pieces = new List<(long Offset, int Length, int FirstIndex)>();
+        var chunk = Math.Max(_recordSize, 8 << 20) / _recordSize * _recordSize;
+        long next = 0;
         foreach (var (lcn, clusters) in runs)
         {
             var offset = lcn * _cluster;
             var left = clusters * _cluster;
-            while (left > 0 && index < total)
+            while (left > 0 && next < total)
             {
-                ct.ThrowIfCancellationRequested();
-                _s.PauseGate.Wait(ct);
-                var n = (int)Math.Min(left, chunk.Length);
-                ReadAt(fs, offset, chunk.AsSpan(0, n));
-                for (var p = 0; p + _recordSize <= n && index < total; p += _recordSize, index++)
-                    ParseRecord(chunk.AsSpan(p, _recordSize), (int)index, recs);
+                var n = (int)Math.Min(left, chunk);
+                pieces.Add((offset, n, (int)next));
+                next += n / _recordSize;
                 offset += n;
                 left -= n;
-                _s._foldersDone = index;
-                _s.CurrentPath = $"Reading master file table: {index * 100 / Math.Max(1, total)} %";
             }
         }
+        // several readers, each with its own volume handle (one handle serializes its reads), each parsing what it read
+        // SSD: 4 readers (measured on NVMe: 4 beats 6, 8 and 16); spinning disk: one reader, front to back
+        var hdd = Win32.HasSeekPenalty(h) != false;
+        var readers = hdd ? 1 : Math.Clamp(Environment.ProcessorCount / 2, 1, 4);
+        if (int.TryParse(Environment.GetEnvironmentVariable("BYTEATLAS_MFT_READERS"), out var forced) && forced > 0)
+            readers = forced;
+        long done = 0;
+        var po = new ParallelOptions { CancellationToken = ct, MaxDegreeOfParallelism = readers };
+        Parallel.ForEach(pieces, po,
+            () => (Handle: OpenVolume(vol.Root, unbuffered: true), Buffer: new AlignedBuffer(chunk)),
+            (piece, _, local) =>
+            {
+                _s.PauseGate.Wait(ct);
+                if (local.Handle.IsInvalid)
+                    throw new UnauthorizedAccessException("Cannot open the volume (administrator rights needed).");
+                var span = local.Buffer.Span[..piece.Length];
+                var read = 0;
+                while (read < span.Length)
+                {
+                    var r = RandomAccess.Read(local.Handle, span[read..], piece.Offset + read);
+                    if (r <= 0)
+                        throw new IOException("Unexpected end of volume.");
+                    read += r;
+                }
+                var count = Math.Min(piece.Length / _recordSize, total - piece.FirstIndex);
+                for (var k = 0; k < count; k++)
+                    ParseRecord(span.Slice(k * _recordSize, _recordSize), piece.FirstIndex + k, recs, extensions);
+                var d = Interlocked.Add(ref done, count);
+                _s._foldersDone = d;
+                _s.CurrentPath = $"Reading master file table: {d * 100 / Math.Max(1, total)} %";
+                return local;
+            },
+            local =>
+            {
+                local.Handle.Dispose();
+                local.Buffer.Dispose();
+            });
+        // attributes that did not fit in the base record
+        foreach (var (_, data) in extensions)
+        {
+            var baseRef = (int)(BinaryPrimitives.ReadUInt64LittleEndian(data.AsSpan(0x20)) & 0xFFFFFFFFFFFF);
+            if (baseRef >= 0 && baseRef < recs.Length && recs[baseRef].InUse)
+                ParseAttributes(data, ref recs[baseRef]);
+        }
+        var readTime = watch.Elapsed;
 
-        BuildTree(recs, vol, ct);
+        BuildTree(recs, vol, ct, out var ownerTime);
+        _s.Timings = $"table {total:N0} records, {readers} reader(s){(hdd ? " (spinning disk)" : "")}: read + parse {readTime.TotalSeconds:N1} s, tree {(watch.Elapsed - readTime - ownerTime).TotalSeconds:N1} s, owners {ownerTime.TotalSeconds:N1} s";
     }
 
     private static void ReadAt(FileStream fs, long offset, Span<byte> buf)
@@ -151,8 +203,6 @@ public sealed class MftScanner
         }
     }
 
-    private static void ReadAt(FileStream fs, long offset, byte[] buf) => ReadAt(fs, offset, buf.AsSpan());
-
     private bool ReadRecordFromRuns(FileStream fs, List<(long Lcn, long Clusters)> runs, long record, byte[] buf)
     {
         var byteOffset = record * _recordSize;
@@ -161,7 +211,6 @@ public sealed class MftScanner
             var len = clusters * _cluster;
             if (byteOffset < len)
             {
-                // read whole sectors around the record
                 ReadAt(fs, lcn * _cluster + byteOffset, buf);
                 return true;
             }
@@ -170,8 +219,8 @@ public sealed class MftScanner
         return false;
     }
 
-    /// <summary>Applies the update sequence array; false when the record is torn.</summary>
-    private bool Fixup(Span<byte> r)
+    /// <summary>Applies the update sequence array; false when the record is torn or not a file record.</summary>
+    private static bool Fixup(Span<byte> r)
     {
         if (r[0] != 'F' || r[1] != 'I' || r[2] != 'L' || r[3] != 'E')
             return false;
@@ -180,10 +229,9 @@ public sealed class MftScanner
         if (usaOfs + usaCount * 2 > r.Length)
             return false;
         var check = BinaryPrimitives.ReadUInt16LittleEndian(r[usaOfs..]);
-        const int stride = 512; // NTFS update sequence stride, whatever the sector size
         for (var i = 1; i < usaCount; i++)
         {
-            var end = i * stride - 2;
+            var end = i * UsaStride - 2;
             if (end + 2 > r.Length)
                 break;
             if (BinaryPrimitives.ReadUInt16LittleEndian(r[end..]) != check)
@@ -205,28 +253,24 @@ public sealed class MftScanner
             var len = (int)BinaryPrimitives.ReadUInt32LittleEndian(rec.AsSpan(a + 4));
             if (len <= 0 || a + len > rec.Length)
                 break;
-            if (type == 0x20 && extensionRefs != null)
+            if (type == 0x20 && extensionRefs != null && rec[a + 8] == 0)
             {
                 // $ATTRIBUTE_LIST: collect records holding further $DATA extents
-                var nonRes = rec[a + 8] != 0;
-                if (!nonRes)
+                var vlen = (int)BinaryPrimitives.ReadUInt32LittleEndian(rec.AsSpan(a + 0x10));
+                int vofs = BinaryPrimitives.ReadUInt16LittleEndian(rec.AsSpan(a + 0x14));
+                var p = a + vofs;
+                var end = p + vlen;
+                while (p + 26 <= end)
                 {
-                    var vlen = (int)BinaryPrimitives.ReadUInt32LittleEndian(rec.AsSpan(a + 0x10));
-                    int vofs = BinaryPrimitives.ReadUInt16LittleEndian(rec.AsSpan(a + 0x14));
-                    var p = a + vofs;
-                    var end = p + vlen;
-                    while (p + 26 <= end)
-                    {
-                        var etype = BinaryPrimitives.ReadUInt32LittleEndian(rec.AsSpan(p));
-                        int elen = BinaryPrimitives.ReadUInt16LittleEndian(rec.AsSpan(p + 4));
-                        var startVcn = BinaryPrimitives.ReadInt64LittleEndian(rec.AsSpan(p + 8));
-                        var refNo = (long)(BinaryPrimitives.ReadUInt64LittleEndian(rec.AsSpan(p + 0x10)) & 0xFFFFFFFFFFFF);
-                        if (etype == 0x80 && refNo != 0 && startVcn > 0 && !extensionRefs.Contains(refNo))
-                            extensionRefs.Add(refNo);
-                        if (elen <= 0)
-                            break;
-                        p += elen;
-                    }
+                    var etype = BinaryPrimitives.ReadUInt32LittleEndian(rec.AsSpan(p));
+                    int elen = BinaryPrimitives.ReadUInt16LittleEndian(rec.AsSpan(p + 4));
+                    var startVcn = BinaryPrimitives.ReadInt64LittleEndian(rec.AsSpan(p + 8));
+                    var refNo = (long)(BinaryPrimitives.ReadUInt64LittleEndian(rec.AsSpan(p + 0x10)) & 0xFFFFFFFFFFFF);
+                    if (etype == 0x80 && refNo != 0 && startVcn > 0 && !extensionRefs.Contains(refNo))
+                        extensionRefs.Add(refNo);
+                    if (elen <= 0)
+                        break;
+                    p += elen;
                 }
             }
             if (type == 0x80 && rec[a + 8] != 0 && rec[a + 9] == 0)
@@ -268,21 +312,28 @@ public sealed class MftScanner
         }
     }
 
-    private void ParseRecord(Span<byte> r, int index, Rec?[] recs)
+    /// <summary>Parses a base record into its slot; extension records are queued (they belong to another slot).</summary>
+    private static void ParseRecord(Span<byte> r, int index, Rec[] recs, ConcurrentQueue<(int, byte[])> extensions)
     {
         if (!Fixup(r))
             return;
         var flags = BinaryPrimitives.ReadUInt16LittleEndian(r[0x16..]);
         if ((flags & 1) == 0)
             return; // not in use
-        var baseRef = (long)(BinaryPrimitives.ReadUInt64LittleEndian(r[0x20..]) & 0xFFFFFFFFFFFF);
-        var owner = baseRef != 0 ? (int)baseRef : index;
-        if (owner < 0 || owner >= recs.Length)
+        var baseRef = BinaryPrimitives.ReadUInt64LittleEndian(r[0x20..]) & 0xFFFFFFFFFFFF;
+        if (baseRef != 0)
+        {
+            extensions.Enqueue((index, r.ToArray()));
             return;
-        var rec = recs[owner] ??= new Rec();
-        if (baseRef == 0)
-            rec.IsDir = (flags & 2) != 0;
+        }
+        ref var rec = ref recs[index];
+        rec.InUse = true;
+        rec.IsDir = (flags & 2) != 0;
+        ParseAttributes(r, ref rec);
+    }
 
+    private static void ParseAttributes(Span<byte> r, ref Rec rec)
+    {
         int a = BinaryPrimitives.ReadUInt16LittleEndian(r[0x14..]);
         while (a + 16 <= r.Length)
         {
@@ -300,6 +351,8 @@ public sealed class MftScanner
                 {
                     int vofs = BinaryPrimitives.ReadUInt16LittleEndian(r[(a + 0x14)..]);
                     var vlen = (int)BinaryPrimitives.ReadUInt32LittleEndian(r[(a + 0x10)..]);
+                    if (vofs >= len)
+                        break;
                     var v = r.Slice(a + vofs, Math.Min(vlen, len - vofs));
                     if (v.Length >= 0x24)
                     {
@@ -313,161 +366,162 @@ public sealed class MftScanner
                     break;
                 }
                 case 0x30 when !nonRes: // $FILE_NAME
-                {
-                    int vofs = BinaryPrimitives.ReadUInt16LittleEndian(r[(a + 0x14)..]);
-                    var v = r[(a + vofs)..(a + len)];
-                    if (v.Length < 0x42)
-                        break;
-                    var parent = (int)(BinaryPrimitives.ReadUInt64LittleEndian(v) & 0xFFFFFFFFFFFF);
-                    int fnLen = v[0x40];
-                    var ns = v[0x41];
-                    if (0x42 + fnLen * 2 > v.Length)
-                        break;
-                    if (ns == 2)
-                    {
-                        // DOS 8.3 alias: only used when nothing better turns up
-                        if (rec.Name == null)
-                        {
-                            rec.Name = MemoryMarshal.Cast<byte, char>(v.Slice(0x42, fnLen * 2)).ToString();
-                            rec.Parent = parent;
-                            rec.NameRank = 9;
-                        }
-                        break;
-                    }
-                    var name = MemoryMarshal.Cast<byte, char>(v.Slice(0x42, fnLen * 2)).ToString();
-                    if (rec.Name == null || rec.NameRank == 9)
-                    {
-                        rec.Name = name;
-                        rec.Parent = parent;
-                        rec.NameRank = ns;
-                    }
-                    else if (rec.Parent != parent || !string.Equals(rec.Name, name, StringComparison.Ordinal))
-                    {
-                        rec.Links ??= [];
-                        rec.Links.Add((parent, name));
-                    }
+                    ParseFileName(r, a, len, ref rec);
                     break;
-                }
                 case 0x80: // $DATA
-                {
-                    long size, alloc;
-                    if (nonRes)
-                    {
-                        var startVcn = BinaryPrimitives.ReadInt64LittleEndian(r[(a + 0x10)..]);
-                        if (startVcn != 0)
-                            break; // later extent: sizes are in the first one
-                        var compUnit = BinaryPrimitives.ReadUInt16LittleEndian(r[(a + 0x22)..]);
-                        var attrFlags = BinaryPrimitives.ReadUInt16LittleEndian(r[(a + 0x0C)..]);
-                        alloc = BinaryPrimitives.ReadInt64LittleEndian(r[(a + 0x28)..]);
-                        size = BinaryPrimitives.ReadInt64LittleEndian(r[(a + 0x30)..]);
-                        if ((compUnit != 0 || (attrFlags & 0x8001) != 0) && len >= 0x48)
-                            alloc = BinaryPrimitives.ReadInt64LittleEndian(r[(a + 0x40)..]); // compressed / sparse: real space
-                    }
-                    else
-                    {
-                        size = BinaryPrimitives.ReadUInt32LittleEndian(r[(a + 0x10)..]);
-                        alloc = 0; // resident in the record itself
-                    }
-                    if (nameLen == 0)
-                    {
-                        rec.Size = size;
-                        rec.Alloc = alloc;
-                    }
-                    else
-                    {
-                        rec.Streams++;
-                        rec.StreamSize += size;
-                        rec.StreamAlloc += alloc;
-                    }
+                    ParseData(r, a, len, nonRes, nameLen, ref rec);
                     break;
-                }
             }
             a += len;
         }
     }
 
-    private static long FileTime(long ft)
+    private static void ParseFileName(Span<byte> r, int a, int len, ref Rec rec)
     {
-        if (ft <= 0)
-            return 0;
-        try
+        int vofs = BinaryPrimitives.ReadUInt16LittleEndian(r[(a + 0x14)..]);
+        if (vofs >= len)
+            return;
+        var v = r[(a + vofs)..(a + len)];
+        if (v.Length < 0x42)
+            return;
+        var parent = (int)(BinaryPrimitives.ReadUInt64LittleEndian(v) & 0xFFFFFFFFFFFF);
+        int fnLen = v[0x40];
+        var ns = v[0x41];
+        if (0x42 + fnLen * 2 > v.Length)
+            return;
+        var name = MemoryMarshal.Cast<byte, char>(v.Slice(0x42, fnLen * 2)).ToString();
+        if (ns == 2)
         {
-            return DateTime.FromFileTimeUtc(ft).Ticks;
+            // DOS 8.3 alias: only used when nothing better turns up
+            if (rec.Name == null)
+            {
+                rec.Name = name;
+                rec.Parent = parent;
+                rec.NameRank = 9;
+            }
+            return;
         }
-        catch (ArgumentOutOfRangeException)
+        if (rec.Name == null || rec.NameRank == 9)
         {
-            return 0;
+            rec.Name = name;
+            rec.Parent = parent;
+            rec.NameRank = ns;
+        }
+        else if (rec.Parent != parent || !string.Equals(rec.Name, name, StringComparison.Ordinal))
+        {
+            rec.Links ??= [];
+            rec.Links.Add((parent, name));
         }
     }
 
-    private void BuildTree(Rec?[] recs, VolumeInfo vol, CancellationToken ct)
+    private static void ParseData(Span<byte> r, int a, int len, bool nonRes, int nameLen, ref Rec rec)
     {
-        const int RootRecord = 5;
-        var dirs = new DirNode?[recs.Length];
-        var root = _s.Root;
-        dirs[RootRecord] = root;
-        if (recs[RootRecord] is { } rr)
-            root.SetOwnDates(rr.Created, rr.Modified, rr.Accessed);
-
-        // security id -> owner (resolved through one file carrying that id)
-        var secOwner = new Dictionary<uint, int>();
-
-        // folders first (parents may come after children in the table)
-        for (var i = 0; i < recs.Length; i++)
+        long size, alloc;
+        if (nonRes)
         {
-            var r = recs[i];
-            if (r is not { IsDir: true, Name: not null } || i == RootRecord || i < 16)
-                continue;
-            var d = new DirNode(r.Name, null) { Attributes = (FileAttributes)r.Attr | FileAttributes.Directory };
-            d.SetOwnDates(r.Created, r.Modified, r.Accessed);
-            d.Pending = false;
-            dirs[i] = d;
+            var startVcn = BinaryPrimitives.ReadInt64LittleEndian(r[(a + 0x10)..]);
+            if (startVcn != 0)
+                return; // later extent: sizes are in the first one
+            var compUnit = BinaryPrimitives.ReadUInt16LittleEndian(r[(a + 0x22)..]);
+            var attrFlags = BinaryPrimitives.ReadUInt16LittleEndian(r[(a + 0x0C)..]);
+            alloc = BinaryPrimitives.ReadInt64LittleEndian(r[(a + 0x28)..]);
+            size = BinaryPrimitives.ReadInt64LittleEndian(r[(a + 0x30)..]);
+            if ((compUnit != 0 || (attrFlags & 0x8001) != 0) && len >= 0x48)
+                alloc = BinaryPrimitives.ReadInt64LittleEndian(r[(a + 0x40)..]); // compressed / sparse: real space
         }
-        for (var i = 0; i < recs.Length; i++)
+        else
         {
-            var d = dirs[i];
-            if (d == null || i == RootRecord)
+            size = BinaryPrimitives.ReadUInt32LittleEndian(r[(a + 0x10)..]);
+            alloc = 0; // resident in the record itself
+        }
+        if (nameLen == 0)
+        {
+            rec.Size = size;
+            rec.Alloc = alloc;
+        }
+        else
+        {
+            rec.Streams++;
+            rec.StreamSize += size;
+            rec.StreamAlloc += alloc;
+        }
+    }
+
+    private static long FileTime(long ft)
+    {
+        // FILETIME 100 ns since 1601 -> DateTime ticks (100 ns since 0001); out-of-range values count as unknown
+        const long Epoch = 504911232000000000L;
+        return ft <= 0 || ft > DateTime.MaxValue.Ticks - Epoch ? 0 : ft + Epoch;
+    }
+
+    private void BuildTree(Rec[] recs, VolumeInfo vol, CancellationToken ct, out TimeSpan ownerTime)
+    {
+        var n = recs.Length;
+        // built detached from the session: the UI only sees the finished tree
+        var root = new DirNode(vol.Root, null) { Pending = false };
+        var dirs = new DirNode?[n];
+        dirs[RootRecord] = root;
+        if (RootRecord < n)
+        {
+            ref var rr = ref recs[RootRecord];
+            root.SetOwnDates(rr.Created, rr.Modified, rr.Accessed);
+            root.Attributes = (FileAttributes)rr.Attr | FileAttributes.Directory;
+        }
+
+        // folder hierarchy as first-child / next-sibling lists (parents may come after children in the table)
+        var firstChild = new int[n];
+        var nextSibling = new int[n];
+        Array.Fill(firstChild, -1);
+        for (var i = 16; i < n; i++)
+        {
+            ref var r = ref recs[i];
+            if (!r.InUse || !r.IsDir || r.Name == null)
                 continue;
-            var p = recs[i]!.Parent;
-            if (p >= 0 && p < dirs.Length && dirs[p] is { } parent && p != i)
+            var p = r.Parent;
+            if (p < 0 || p >= n || p == i)
+                continue;
+            nextSibling[i] = firstChild[p];
+            firstChild[p] = i;
+        }
+        // walk from the root: only folders that hang below it (drops $Extend and orphans)
+        var stack = new Stack<int>();
+        stack.Push(RootRecord);
+        while (stack.Count > 0)
+        {
+            var p = stack.Pop();
+            var parent = dirs[p]!;
+            for (var c = firstChild[p]; c >= 0; c = nextSibling[c])
             {
-                d.Parent = parent;
+                ref var r = ref recs[c];
+                var d = new DirNode(r.Name!, parent) { Attributes = (FileAttributes)r.Attr | FileAttributes.Directory, Pending = false };
+                d.SetOwnDates(r.Created, r.Modified, r.Accessed);
                 parent.DirList.Add(d);
+                dirs[c] = d;
+                stack.Push(c);
             }
         }
         ct.ThrowIfCancellationRequested();
 
-        // which folders actually hang under the root (drops $Extend and orphans)
-        var reachable = new bool[recs.Length];
-        reachable[RootRecord] = true;
-        var stack = new Stack<int>();
-        var childIndex = new Dictionary<DirNode, int>(dirs.Length / 8);
-        for (var i = 0; i < dirs.Length; i++)
-            if (dirs[i] != null)
-                childIndex[dirs[i]!] = i;
-        stack.Push(RootRecord);
-        while (stack.Count > 0)
-        {
-            var i = stack.Pop();
-            foreach (var c in dirs[i]!.DirList)
-                if (childIndex.TryGetValue(c, out var ci) && !reachable[ci])
-                {
-                    reachable[ci] = true;
-                    stack.Push(ci);
-                }
-        }
-
         var track = _o.TrackHardlinksAndStreams;
+        var owners = _o.CollectOwners;
+        var firstPath = new Dictionary<uint, (DirNode Dir, string? Name)>();
+        for (var i = 0; i < n; i++)
+            if (dirs[i] is { } d && recs[i].SecurityId != 0 && owners)
+            {
+                d.OwnerId = (int)recs[i].SecurityId;
+                firstPath.TryAdd(recs[i].SecurityId, (d, null));
+            }
+        var ownerWatch = new Stopwatch();
         long files = 0;
-        for (var i = 16; i < recs.Length; i++)
+        for (var i = 16; i < n; i++)
         {
-            var r = recs[i];
-            if (r is not { IsDir: false, Name: not null })
+            ref var r = ref recs[i];
+            if (!r.InUse || r.IsDir || r.Name == null)
                 continue;
-            AddFile(r, r.Parent, r.Name, first: true);
+            AddFile(ref r, r.Parent, r.Name, first: true);
             if (r.Links != null)
                 foreach (var (lp, ln) in r.Links)
-                    AddFile(r, lp, ln, first: false);
+                    AddFile(ref r, lp, ln, first: false);
             if ((++files & 0xFFFF) == 0)
             {
                 ct.ThrowIfCancellationRequested();
@@ -477,9 +531,17 @@ public sealed class MftScanner
         }
         _s._filesDone = files;
 
-        void AddFile(Rec r, int parent, string name, bool first)
+        if (owners)
         {
-            if (parent < 0 || parent >= dirs.Length || !reachable[parent] || dirs[parent] is not { } dir)
+            ownerWatch.Start();
+            ResolveOwners(root, firstPath);
+            ownerWatch.Stop();
+        }
+        ownerTime = ownerWatch.Elapsed;
+
+        void AddFile(ref Rec r, int parent, string name, bool first)
+        {
+            if (parent < 0 || parent >= n || dirs[parent] is not { } dir)
                 return;
             if (_o.HasFilters && !_o.IncludeFile(name))
                 return;
@@ -497,24 +559,12 @@ public sealed class MftScanner
             if (track)
                 alloc = first ? alloc + r.StreamAlloc : 0;
             f.SetSizes(r.Size, alloc);
-            if (_o.CollectOwners && r.SecurityId != 0)
+            if (owners && r.SecurityId != 0)
             {
-                if (!secOwner.TryGetValue(r.SecurityId, out var oid))
-                {
-                    oid = -1;
-                    try
-                    {
-                        var owner = Win32.GetOwner(Path.Combine(dir.FullPath, name));
-                        if (owner != null)
-                            oid = _s.Owners.GetId(owner);
-                    }
-                    catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException)
-                    {
-                        oid = -1;
-                    }
-                    secOwner[r.SecurityId] = oid;
-                }
-                f.OwnerId = oid;
+                // the raw security id for now; ResolveOwners turns it into an owner index
+                f.OwnerId = (int)r.SecurityId;
+                if (!firstPath.ContainsKey(r.SecurityId))
+                    firstPath[r.SecurityId] = (dir, name);
             }
             dir.FileList.Add(f);
         }
@@ -528,23 +578,81 @@ public sealed class MftScanner
 
         // a folder below the volume root: cut out that branch
         var rel = _s.Root.Name.Length > vol.Root.Length ? _s.Root.Name[vol.Root.Length..] : "";
+        var result = root;
         if (rel.Length > 0)
         {
             var sub = root.FindRelative(rel) ?? throw new DirectoryNotFoundException(_s.Path);
-            var newRoot = new DirNode(_s.Root.Name, null) { Attributes = sub.Attributes };
-            newRoot.SetOwnDates(sub.CreatedTicks, sub._ownModified, sub._ownAccessed);
+            result = new DirNode(_s.Root.Name, null) { Attributes = sub.Attributes, OwnerId = sub.OwnerId, Pending = false };
+            result.SetOwnDates(sub.CreatedTicks, sub._ownModified, sub._ownAccessed);
             foreach (var c in sub.DirList)
             {
-                c.Parent = newRoot;
-                newRoot.DirList.Add(c);
+                c.Parent = result;
+                result.DirList.Add(c);
             }
             foreach (var f in sub.FileList)
             {
-                f.Parent = newRoot;
-                newRoot.FileList.Add(f);
+                f.Parent = result;
+                result.FileList.Add(f);
             }
-            _s.Root = newRoot;
         }
-        _s._foldersDone = _s.Root.AllFolders().LongCount();
+        else
+            result.Name = _s.Root.Name;
+        _s.Root = result;
+        _s._foldersDone = result.AllFolders().LongCount() - 1;
+    }
+
+    /// <summary>
+    /// Items carry their raw security id in OwnerId: look up each distinct id once (in parallel, through the first
+    /// file or folder using it) and replace the ids with owner indexes.
+    /// </summary>
+    private void ResolveOwners(DirNode root, Dictionary<uint, (DirNode Dir, string? Name)> firstPath)
+    {
+        var names = new ConcurrentDictionary<uint, string?>();
+        Parallel.ForEach(firstPath, new ParallelOptions { MaxDegreeOfParallelism = 8 }, kv =>
+        {
+            var path = kv.Value.Name == null ? kv.Value.Dir.FullPath : Path.Combine(kv.Value.Dir.FullPath, kv.Value.Name);
+            string? owner;
+            try
+            {
+                owner = Win32.GetOwner(path);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException)
+            {
+                owner = null;
+            }
+            names[kv.Key] = owner;
+        });
+        var ids = new Dictionary<uint, int>(names.Count);
+        foreach (var (sid, owner) in names)
+            ids[sid] = owner == null ? -1 : _s.Owners.GetId(owner);
+        int Map(int raw) => raw > 0 && ids.TryGetValue((uint)raw, out var id) ? id : -1;
+        var stack = new Stack<DirNode>();
+        stack.Push(root);
+        while (stack.Count > 0)
+        {
+            var d = stack.Pop();
+            d.OwnerId = Map(d.OwnerId);
+            foreach (var f in d.FileList)
+                f.OwnerId = Map(f.OwnerId);
+            foreach (var c in d.DirList)
+                stack.Push(c);
+        }
+    }
+
+    /// <summary>Native memory aligned to 4 KB (unbuffered volume reads need sector alignment).</summary>
+    private sealed unsafe class AlignedBuffer(int size) : IDisposable
+    {
+        private void* _p = NativeMemory.AlignedAlloc((nuint)size, 4096);
+
+        public Span<byte> Span => new(_p, size);
+
+        public void Dispose()
+        {
+            if (_p != null)
+            {
+                NativeMemory.AlignedFree(_p);
+                _p = null;
+            }
+        }
     }
 }

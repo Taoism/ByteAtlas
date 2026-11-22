@@ -41,6 +41,8 @@ public sealed class AgeIntervals
 
 public static class Statistics
 {
+    public const string FutureLabel = "In the future";
+
     /// <summary>Totals per file extension in a branch, largest first.</summary>
     public static List<StatRow> ByExtension(DirNode branch, FileGroups? groups = null, Func<FileItem, bool>? filter = null)
     {
@@ -107,6 +109,7 @@ public static class Statistics
             });
             prev = max;
         }
+        StatRow? future = null;
         foreach (var f in branch.AllFiles())
         {
             var d = basis switch
@@ -116,14 +119,22 @@ public static class Statistics
                 _ => f.Modified,
             };
             var age = at - d;
-            var idx = 0;
-            while (idx < intervals.Intervals.Count - 1 && age > intervals.Intervals[idx].MaxAge)
-                idx++;
-            var row = rows[idx];
+            StatRow row;
+            if (age < -TimeSpan.FromDays(1))
+                row = future ??= new StatRow { Key = FutureLabel, Description = "Time stamp after today (wrong clock?)", From = at, To = DateTime.MaxValue };
+            else
+            {
+                var idx = 0;
+                while (idx < intervals.Intervals.Count - 1 && age > intervals.Intervals[idx].MaxAge)
+                    idx++;
+                row = rows[idx];
+            }
             row.Size += f.Size;
             row.Allocated += f.Allocated;
             row.Files++;
         }
+        if (future != null)
+            rows.Insert(0, future);
         SetPercents(rows);
         return rows;
     }

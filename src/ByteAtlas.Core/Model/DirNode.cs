@@ -157,7 +157,11 @@ public sealed class DirNode : Item
     }
 
     /// <summary>Recomputes totals, dates and depths bottom-up (single threaded, after a scan or an edit).</summary>
-    public void Recalculate(bool folderDateFromFilesOnly = true)
+    public void Recalculate(bool folderDateFromFilesOnly = true) =>
+        Recalculate(folderDateFromFilesOnly, DateTime.UtcNow.AddDays(1).Ticks);
+
+    /// <summary>Dates after <paramref name="future"/> (bad clocks, wrong time stamps) do not count for folder dates.</summary>
+    private void Recalculate(bool folderDateFromFilesOnly, long future)
     {
         long size = 0, alloc = 0, files = 0, folders = 0, mod = 0, acc = 0;
         var depth = 0;
@@ -166,15 +170,17 @@ public sealed class DirNode : Item
         {
             ownSize += f.Size;
             ownAlloc += f.Allocated;
-            mod = Math.Max(mod, f.ModifiedTicks);
-            acc = Math.Max(acc, f.AccessedTicks);
+            if (f.ModifiedTicks <= future)
+                mod = Math.Max(mod, f.ModifiedTicks);
+            if (f.AccessedTicks <= future)
+                acc = Math.Max(acc, f.AccessedTicks);
         }
         size += ownSize;
         alloc += ownAlloc;
         files += _files.Count;
         foreach (var d in _dirs)
         {
-            d.Recalculate(folderDateFromFilesOnly);
+            d.Recalculate(folderDateFromFilesOnly, future);
             size += d.Size;
             alloc += d.Allocated;
             files += d.FileCount;
@@ -192,8 +198,10 @@ public sealed class DirNode : Item
         MaxDepthBelow = depth;
         if (!folderDateFromFilesOnly)
         {
-            mod = Math.Max(mod, _ownModified);
-            acc = Math.Max(acc, _ownAccessed);
+            if (_ownModified <= future)
+                mod = Math.Max(mod, _ownModified);
+            if (_ownAccessed <= future)
+                acc = Math.Max(acc, _ownAccessed);
         }
         _aggModified = mod == 0 ? _ownModified : mod;
         _aggAccessed = acc == 0 ? _ownAccessed : acc;

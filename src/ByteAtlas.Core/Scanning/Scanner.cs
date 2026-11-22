@@ -35,6 +35,28 @@ public static class Scanner
                     useMft = false;
             }
 
+            // a folder below the drive root: the master file table costs the same as for the whole drive,
+            // so try a quick folder walk first and only read the table when the folder turns out to be big
+            if (useMft && s.Options.Method == ScanMethod.Auto && !IsVolumeRoot(path, vol))
+            {
+                using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                budget.CancelAfter(QuickWalkBudget);
+                try
+                {
+                    new FileSystemScanner(s).Run(s.Root, path, budget.Token);
+                    useMft = false;
+                    s.Timings = $"quick folder walk ({QuickWalkBudget.TotalSeconds:N0} s budget) was enough";
+                }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                {
+                    Reset(s);
+                }
+            }
+            else if (useMft && OperatingSystem.IsWindows())
+                useMft = true;
+            else
+                new FileSystemScanner(s).Run(s.Root, path, ct);
+
             if (useMft && OperatingSystem.IsWindows())
             {
                 try
@@ -44,13 +66,10 @@ public static class Scanner
                 catch (Exception e) when (e is IOException or UnauthorizedAccessException && s.Options.Method == ScanMethod.Auto)
                 {
                     s.AddError(path, "Master file table not readable, walked folders instead: " + e.Message);
-                    s.Root.ClearChildren();
-                    s.MethodUsed = "";
+                    Reset(s);
                     new FileSystemScanner(s).Run(s.Root, path, ct);
                 }
             }
-            else
-                new FileSystemScanner(s).Run(s.Root, path, ct);
 
             Finish(s);
             s.State = ScanState.Done;
@@ -74,12 +93,30 @@ public static class Scanner
         }
     }
 
+    /// <summary>How long a folder walk may take before a big folder is read from the master file table instead.</summary>
+    public static TimeSpan QuickWalkBudget { get; set; } = TimeSpan.FromSeconds(2);
+
+    private static bool IsVolumeRoot(string path, VolumeInfo vol) =>
+        string.Equals(ScanSession.NormalizeRoot(path).TrimEnd('\\', '/'), vol.Root.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Throws away a partial result before scanning again another way.</summary>
+    private static void Reset(ScanSession s)
+    {
+        s.Root.ClearChildren();
+        s.Root._size = s.Root._allocated = s.Root._fileCount = s.Root._folderCount = 0;
+        s.Root.Error = null;
+        s._filesDone = s._foldersDone = 0;
+        s.MethodUsed = "";
+    }
+
     private static void Finish(ScanSession s)
     {
+        var w = System.Diagnostics.Stopwatch.StartNew();
         s.Root.Recalculate(s.Options.FolderDateFromFilesOnly);
         s.Root.Sort(bySize: true);
         foreach (var d in s.Root.AllFolders())
             d.Pending = false;
+        s.Timings += (s.Timings.Length > 0 ? ", " : "") + $"totals + sort {w.Elapsed.TotalSeconds:N1} s";
     }
 
     /// <summary>Scans a folder of an existing scan again (with or without its sub folders).</summary>

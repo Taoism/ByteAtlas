@@ -89,6 +89,9 @@ public sealed class ScanSession
 
     public string CurrentPath { get; internal set; } = "";
 
+    /// <summary>Where the scan time went (diagnostics, shown by the CLI with --verbose).</summary>
+    public string Timings { get; internal set; } = "";
+
     public ConcurrentQueue<ScanError> Errors { get; } = new();
 
     /// <summary>Volume information when the root is a drive or a folder on one.</summary>

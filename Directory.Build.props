@@ -9,5 +9,8 @@
     <Copyright>Copyright (c) 2026 Taoism</Copyright>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- scans allocate millions of small objects on several threads: server GC is much faster here -->
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
   </PropertyGroup>
 </Project>

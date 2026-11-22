@@ -82,6 +82,36 @@ internal static partial class Win32
 
     public const uint FSCTL_SET_COMPRESSION = 0x9C040;
 
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool DeviceIoControl(SafeFileHandle h, uint code, ref StoragePropertyQuery inBuf, int inSize, out SeekPenaltyDescriptor outBuf, int outSize, out int returned, IntPtr overlapped);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct StoragePropertyQuery
+    {
+        public int PropertyId;
+        public int QueryType;
+        public byte Extra;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct SeekPenaltyDescriptor
+    {
+        public uint Version;
+        public uint Size;
+        public byte IncursSeekPenalty;
+    }
+
+    /// <summary>True for spinning disks (seeks are expensive), false for SSDs, null when the volume does not say.</summary>
+    public static bool? HasSeekPenalty(SafeFileHandle volume)
+    {
+        const uint IoctlStorageQueryProperty = 0x2D1400;
+        var q = new StoragePropertyQuery { PropertyId = 7 }; // StorageDeviceSeekPenaltyProperty
+        return DeviceIoControl(volume, IoctlStorageQueryProperty, ref q, Marshal.SizeOf<StoragePropertyQuery>(), out var d, Marshal.SizeOf<SeekPenaltyDescriptor>(), out var n, IntPtr.Zero) && n >= 9
+            ? d.IncursSeekPenalty != 0
+            : null;
+    }
+
     // ----- security -----
 
     public const int SE_FILE_OBJECT = 1;

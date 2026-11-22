@@ -118,6 +118,49 @@ public class ScanTests
     }
 
     [Fact]
+    public void MftMatchesFolderWalk()
+    {
+        if (!OperatingSystem.IsWindows() || !MftScanner.CanScan(Path.GetTempPath(), out _))
+            return; // needs administrator rights and NTFS
+        using var t = new TempTree();
+        var walk = t.Scan();
+        var mft = t.Scan(new ScanOptions { Method = ScanMethod.Mft, CollectOwners = true });
+        Assert.Equal(ScanState.Done, mft.State);
+        Assert.Equal("NTFS master file table", mft.MethodUsed);
+        Assert.Equal(walk.Root.Size, mft.Root.Size);
+        Assert.Equal(walk.Root.FileCount, mft.Root.FileCount);
+        Assert.Equal(walk.Root.FolderCount, mft.Root.FolderCount);
+        Assert.Equal(t.Root, mft.Root.FullPath);
+        Assert.Equal(20000, mft.Root.FindRelative("sub")!.Files.Single(f => f.Name == "c.bin").Size);
+        Assert.True(mft.Root.OwnerId >= 0, "folders get an owner too");
+        Assert.All(mft.Root.AllFiles(), f => Assert.True(f.OwnerId >= 0));
+    }
+
+    [Fact]
+    public void SmallFolderUsesQuickWalk()
+    {
+        if (!OperatingSystem.IsWindows() || !MftScanner.CanScan(Path.GetTempPath(), out _))
+            return;
+        using var t = new TempTree();
+        var s = t.Scan(new ScanOptions { Method = ScanMethod.Auto, CollectOwners = false });
+        Assert.StartsWith("File system", s.MethodUsed);
+        Assert.Equal(1000 + 5000 + 20000 + 300 + 70000 + 3 * 9000, s.Root.Size);
+    }
+
+    [Fact]
+    public void FutureDatesDoNotMoveFolderDates()
+    {
+        using var t = new TempTree();
+        var f = t.Write(Path.Combine("sub", "future.txt"), 10);
+        File.SetLastWriteTime(f, DateTime.Now.AddYears(3));
+        var s = t.Scan();
+        Assert.True(s.Root.Modified < DateTime.Now.AddDays(1));
+        var ages = Statistics.ByAge(s.Root, new AgeIntervals());
+        Assert.Equal(Statistics.FutureLabel, ages[0].Key);
+        Assert.Equal(1, ages[0].Files);
+    }
+
+    [Fact]
     public void ExcludeFilterLeavesFilesOut()
     {
         using var t = new TempTree();

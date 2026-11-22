@@ -55,6 +55,7 @@ internal static class CliApp
             --owners FILE             write the owner statistics
             --ages FILE               write the age statistics
             --top-files N FILE        write the N largest files
+            --verbose                 show where the scan time went
 
           byteatlas-cli compare <path-or-index> <older-index-or-path> [--export FILE] [--top N]
           byteatlas-cli search <path> [--template large|old|temp|duplicates|longpaths]
@@ -119,6 +120,7 @@ internal static class CliApp
         string? index = null, extFile = null, ownerFile = null, ageFile = null, topFile = null;
         var topFiles = 100;
         var history = false;
+        var verbose = false;
         for (var i = 1; i < a.Length; i++)
         {
             string Next() => i + 1 < a.Length ? a[++i] : throw new ArgumentException($"{a[i]} needs a value");
@@ -159,6 +161,9 @@ internal static class CliApp
                 case "--history":
                     history = true;
                     break;
+                case "--verbose" or "-v":
+                    verbose = true;
+                    break;
                 case "--extensions":
                     extFile = Next();
                     break;
@@ -183,6 +188,8 @@ internal static class CliApp
         var r = s.Root;
         Console.WriteLine($"{r.FullPath}: {SizeFormat.Format(r.Size, exp.Unit)} ({SizeFormat.Format(r.Allocated, exp.Unit)} allocated), {SizeFormat.Count(r.FileCount)} files, {SizeFormat.Count(r.FolderCount)} folders");
         Console.WriteLine($"{s.MethodUsed}, {sw.Elapsed.TotalSeconds:N1} s, {s.Errors.Count} errors, {s.State}");
+        if (verbose)
+            Console.WriteLine("timings: " + s.Timings);
         foreach (var d in r.Dirs.Take(top))
             Console.WriteLine($"  {SizeFormat.Format(d.Size, exp.Unit),12}  {d.FileCount,12:N0}  {d.Name}");
 
