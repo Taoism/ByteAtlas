@@ -23,6 +23,9 @@ public sealed class ExportRow
 
     /// <summary>0..1 for the size bar in HTML / PDF.</summary>
     public double? Bar { get; init; }
+
+    /// <summary>Report: a colour swatch before the first cell (file types), 0xRRGGBB.</summary>
+    public uint? Swatch { get; init; }
 }
 
 /// <summary>A table to export: list views and the directory tree (with levels) alike.</summary>

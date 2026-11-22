@@ -115,24 +115,28 @@ clean-room, open source. Version 0.1.0 (2026-11-21).
   error / warning messages, crashes, command line runs (addresses without user names or tokens);
   Help › Open log folder.
 
+## Done (next version, 2026-11-22)
+
+- Shared space: Tools › Measure shared space (and after Clone selected…) finds clones / hard links sharing blocks;
+  the overview shows Shared and Really used. History chart: times on the axis when the scans are close together.
+  Low-space note on the screen ByteAtlas was last used on. All combo boxes settable through UI automation.
+- File type colours: each file group has a colour, its types shades of it (stable between runs), the same in the
+  treemap (with a legend), pie, bars and the File types list; Options › Colours (swatches, #RRGGBB, single types).
+- Item icons in Details, Top Files, duplicates and the tree: filled folders in theme colours (dark and light each
+  their own, no light outlines), files as pages with a band in their type colour.
+- Report designer (File › Report designer / print, Ctrl+P): title, notes, logo, footer, paper, sections (summary,
+  treemap, folders, file types with colours, owners, ages, largest files) in any order with row counts, live page
+  preview drawn from the same layout as the PDF, save PDF, print, templates.
+- Portable mode: portable.txt next to the program keeps settings, history, checksums, cache and logs in "data";
+  File › Create portable copy…; the release zip is portable; Scoop keeps the data folder between updates.
+
 ## Open
-- [ ] Clones / shared blocks: show the space really used (a "shared" figure in Details / overview).
-- [ ] History chart: time labels when the scans are close together (same day).
-- [ ] Low-space note: on the screen ByteAtlas was last used on, not always the primary one.
-- [ ] Combo boxes reachable through UI automation (Value pattern), like the result grids.
-- [ ] Portable mode: settings, history, checksums, cache and logs next to the program.
 - [ ] Submit the winget manifest (packaging\winget\0.5.0) to microsoft/winget-pkgs (ask first).
 - [ ] Later: similar images / audio; memory + speed pass for 10 M+ file scans.
-- [ ] Chart colours per file type: every extension / file group gets its own colour in the treemap, pie and bar
-      charts, with a legend, editable colours (Options), the same colour for a type everywhere in the app.
-- [ ] Details view: file and folder icons, with folder icons drawn for both dark and light mode (no light outlines
-      on dark), chosen to match the current theme.
 
 - [ ] More remote sources: SharePoint / OneDrive through Microsoft Graph (sign-in), Outlook mailboxes, phones via MTP.
-- [ ] Report designer + print preview inside the app; SMTP mail; portable mode; cleanup recommendations;
-      treemap colour by age / growth; SMART disk health.
+- [ ] SMTP mail; cleanup recommendations; treemap colour by age / growth; SMART disk health; command line --json.
 - [ ] Linux arm64 and macOS packages; Linux SMART.
-- [ ] Print preview inside the app (currently: PDF opened in the viewer).
 - [ ] Explorer menu and drag-out need a manual check (UI automation cannot drive them).
 - [ ] Release: publish GUI + CLI side by side (GUI looks for byteatlas-cli next to itself), installer, portable zip,
       "create portable installation", GitHub repo + release (ask first).

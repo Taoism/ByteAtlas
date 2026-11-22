@@ -117,7 +117,7 @@ public sealed partial class MainWindow
             return;
         SetStatus("Measuring shared space in " + d.FullPath + "…");
         var progress = new Progress<(long Done, long Total)>(p => SetStatus($"Measuring shared space: {p.Done:N0} of {p.Total:N0} files"));
-        var r = await Task.Run(() => Analysis.SharedSpace.Measure(d, progress), CancellationToken.None);
+        var r = await Task.Run(() => Analysis.SharedSpace.Measure(d, progress, CancellationToken.None), CancellationToken.None);
         _shared[d.FullPath] = (r, d.Size, DateTime.Now);
         UpdateOverview(SelectedScan, SelectedFolder);
         var text = !r.Supported

@@ -18,6 +18,7 @@ no .NET needed; each has the app and the `byteatlas-cli` command):
 | Debian / Ubuntu / Mint | `sudo apt install ./byteatlas_<v>_amd64.deb` |
 | Fedora / RHEL | `sudo dnf install ./byteatlas-<v>-1.x86_64.rpm` |
 | Other Linux | `ByteAtlas-<v>-linux-x64.tar.gz`: unpack, run `./ByteAtlas` |
+| Portable | the `…-win-x64.zip`: settings, history and logs stay in its `data` folder (or File › Create portable copy) |
 | Scoop | `scoop bucket add byteatlas https://github.com/Taoism/ByteAtlas` then `scoop install byteatlas` |
 
 ByteAtlas looks for a newer release once a day (one request to GitHub, nothing else sent, nothing downloaded;
@@ -49,6 +50,7 @@ compression and permissions, snapshots, Explorer menu) are hidden there.
 **Views**
 - Directory tree with size bars, `[Files]` rows, bold for large folders, compressed in blue, long paths in red;
   size / allocated / file count / percent; units and decimals; expand to level, hide small, find deepest nesting.
+- **Colours per file type**, the same in the treemap (with legend), pie, bars and lists; editable in Options.
 - **Chart**: squarified treemap (hierarchy, single files, coloured by file type or level, level of detail),
   pie and bar charts of folders, extensions, owners or ages, with free space; save as PNG.
 - **Details** with selectable columns (size, allocated, %, files, folders, dates, owner, attributes, type,
@@ -77,8 +79,9 @@ criteria (names, size, dates, attributes, owner, path length). On the results: d
 
 **Bulk rename** — replace (regex), insert, serialize, delete, case; ordered rules, preview, undo, rule sets.
 
-**Reports** — Excel (.xlsx, outline levels), PDF, HTML, CSV, text, clipboard, email (attachment), print (via PDF);
-choose columns, depth, files, units.
+**Reports** — a **report designer** with live page preview: title, notes, logo, footer, paper, and the sections you
+pick (summary, treemap, folders, file types, owners, ages, largest files) in your order; save as PDF or print;
+templates. Exports to Excel (.xlsx, outline levels), PDF, HTML, CSV, text, clipboard, email (attachment).
 
 **Growth tracking** — save scans to index files (SQLite or XML) and load them later; compare the current scan
 with an index file, another path or a **Windows snapshot** (volume shadow copy; create snapshots too).

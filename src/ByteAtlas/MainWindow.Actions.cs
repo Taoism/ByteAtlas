@@ -667,15 +667,71 @@ public sealed partial class MainWindow
             await CopyTextAsync(string.Join(Environment.NewLine, d.AllFiles().Select(f => f.FullPath)));
     }
 
-    private async Task PrintReportAsync()
+    /// <summary>The report designer for the selected folder: sections, look, preview, PDF and printing.</summary>
+    private Task PrintReportAsync()
     {
-        var t = BranchTable();
-        if (t == null)
-            return;
-        var path = Path.Combine(Path.GetTempPath(), "ByteAtlas-report-" + DateTime.Now.ToString("yyyyMMdd-HHmmss", System.Globalization.CultureInfo.InvariantCulture) + ".pdf");
-        await WriteExportAsync(t, path);
-        // the PDF viewer prints (and previews) it
-        Shell.Open(path);
+        if (SelectedScan is not { } s || SelectedFolder is not { } d)
+            return Task.CompletedTask;
+        var chart = ReportChartPng(d);
+        var w = new ReportWindow(_settings, d.FullPath, () =>
+        {
+            // the folder can be gone after a refresh: then there is nothing to report on
+            if (!_tree.Scans.Contains(s) && !ReferenceEquals(s, _group))
+                throw new InvalidOperationException("The scan was removed.");
+            return new Export.ReportInput
+            {
+                Scan = s,
+                Folder = d,
+                Table = _settings.Export,
+                Groups = _settings.FileGroupSet,
+                Ages = _settings.AgeIntervalSet,
+                AgeBasis = _settings.AgeBasis,
+                ChartPng = chart,
+                TypeColor = ext =>
+                {
+                    var c = Palette.ForExtension(ext, _settings.FileGroupSet);
+                    return (uint)(c.R << 16 | c.G << 8 | c.B);
+                },
+            };
+        });
+        w.Show(this);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>The treemap of a folder as a PNG for the report (light colours: it goes on paper).</summary>
+    private byte[]? ReportChartPng(DirNode d)
+    {
+        var map = new TreemapChart
+        {
+            Root = d,
+            ShowHierarchy = _settings.TreemapHierarchy,
+            ShowFiles = _settings.TreemapFiles,
+            ColorByType = _settings.TreemapColorByType,
+            ShowLabels = _settings.ChartLabels,
+            MaxDepth = _settings.TreemapDepth,
+            Groups = _settings.FileGroupSet,
+            Format = v => _settings.Size(v),
+        };
+        map.PrepareLegend();
+        // light colours: it goes on paper
+        var scope = new ThemeVariantScope { RequestedThemeVariant = Avalonia.Styling.ThemeVariant.Light, Child = map };
+        try
+        {
+            var size = new Avalonia.Size(1600, 900);
+            scope.Measure(size);
+            scope.Arrange(new Avalonia.Rect(size));
+            using var bmp = new Avalonia.Media.Imaging.RenderTargetBitmap(new Avalonia.PixelSize(1600, 900));
+            bmp.Render(scope);
+            using var ms = new MemoryStream();
+#pragma warning disable CS0618 // a plain PNG needs no encoder options
+            bmp.Save(ms);
+#pragma warning restore CS0618
+            return ms.ToArray();
+        }
+        catch (Exception e) when (e is IOException or InvalidOperationException)
+        {
+            return null;
+        }
     }
 
     private async Task EmailReportAsync()

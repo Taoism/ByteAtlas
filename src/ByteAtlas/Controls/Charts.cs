@@ -657,6 +657,13 @@ public sealed class TreemapChart : ChartBase
     private (DirNode Root, long Size, FileGroups Groups, List<(string Group, long Size)> Sums)? _legend;
     private DirNode? _legendPending;
 
+    /// <summary>Counts the legend now (a picture rendered off screen cannot wait for the background count).</summary>
+    public void PrepareLegend()
+    {
+        if (_root is { } root)
+            _legend = (root, root.Size, Groups, [.. root.AllFiles().GroupBy(f => Groups.GroupOf(f.Extension)).Select(g => (g.Key, g.Sum(f => f.Size))).Where(x => x.Item2 > 0).OrderByDescending(x => x.Item2)]);
+    }
+
     /// <summary>File groups by size below the shown folder (counted in the background, then drawn).</summary>
     private List<(string Group, long Size)>? Legend()
     {

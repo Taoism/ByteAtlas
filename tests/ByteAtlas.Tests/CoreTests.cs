@@ -864,3 +864,27 @@ public class PortableTests
         }
     }
 }
+
+public class ReportTests
+{
+    [Fact]
+    public void ReportLaysOutAndWritesPdf()
+    {
+        using var t = new TempTree();
+        for (var i = 0; i < 120; i++)
+            t.Write($@"many\f{i:000}.dat", 1000 + i);
+        var s = t.Scan();
+        var def = new ReportDefinition { Title = "Test report", Notes = "A note that is long enough to wrap. " + string.Concat(Enumerable.Repeat("word ", 80)), Footer = "Footer text", Depth = 3 };
+        def.Sections.Single(x => x.Kind == ReportSectionKind.TopFiles).Rows = 100;
+        var pages = Report.Layout(def, new ReportInput { Scan = s, Folder = s.Root, TypeColor = _ => 0xFF0000 });
+        Assert.True(pages.Count >= 2, $"pages {pages.Count}");
+        // every page has its page number; texts stay on the page
+        Assert.All(pages, p => Assert.Contains(p.Elements, e => e is ReportText rt && rt.Text.StartsWith("Page ")));
+        Assert.All(pages.SelectMany(p => p.Elements.Select(e => (p, e))), x => Assert.True(x.e.Y + x.e.H <= x.p.Height + 0.1));
+        Assert.Contains(pages[0].Elements, e => e is ReportBox { Fill: 0xFF0000 }); // file type swatches
+        var pdf = Path.Combine(t.Root, "r.pdf");
+        Report.WritePdf(pages, pdf, def.Title);
+        Assert.True(new FileInfo(pdf).Length > 2000);
+        Assert.Equal((841.9, 595.3), Report.PaperSize(def));
+    }
+}

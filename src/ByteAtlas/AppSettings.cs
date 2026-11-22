@@ -97,6 +97,10 @@ public sealed class AppSettings
 
     /// <summary>Ask GitHub once a day whether a newer release exists (nothing is downloaded).</summary>
     public bool CheckForUpdates { get; set; } = true;
+
+    /// <summary>The report designer: the report last made, and saved templates.</summary>
+    public Export.ReportDefinition Report { get; set; } = new();
+    public List<Export.ReportDefinition> ReportTemplates { get; set; } = [];
     public DateTime LastUpdateCheck { get; set; }
     public string SkippedVersion { get; set; } = "";
     public bool DuplicateRememberChecksums { get; set; } = true;

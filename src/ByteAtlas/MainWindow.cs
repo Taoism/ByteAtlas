@@ -528,7 +528,7 @@ public sealed partial class MainWindow : Window
                 Item("List of _all files (CSV)…", ExportAllFilesAsync),
                 new Separator(),
                 Item("Customi_ze export…", () => OpenOptions("Export"))),
-            Item("_Print report…", PrintReportAsync, new KeyGesture(Key.P, KeyModifiers.Control)),
+            Item("Report designer / _print…", PrintReportAsync, new KeyGesture(Key.P, KeyModifiers.Control)),
             new Separator(),
             Item("Set _title…", SetTitleAsync),
             Item("_Remove scan", RemoveSelectedScan),
@@ -722,7 +722,7 @@ public sealed partial class MainWindow : Window
         Ctrl+G   Find folder in the tree
         Ctrl+1…6 Expand to level      *  Expand all
         Ctrl+S   Save scan to index file
-        Ctrl+P   Print report (PDF)
+        Ctrl+P   Report designer: preview, PDF, print
         Alt+←/→  Back / forward      Backspace  Parent folder
         Alt+1…9  Chart, Details, Extensions, Users, Age, Top Files, Duplicate Files, Duplicate Folders, History
         F6       Move between the tree and the right side

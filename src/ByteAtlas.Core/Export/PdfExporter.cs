@@ -9,12 +9,21 @@ public static class PdfExporter
 {
     private static bool _fontsReady;
 
-    private static void InitFonts()
+    internal static void InitFonts()
     {
         if (_fontsReady)
             return;
         _fontsReady = true;
         GlobalFontSettings.FontResolver ??= new SystemFontResolver();
+    }
+
+    /// <summary>Fonts ready for PDFsharp; a clear error when there is no font at all.</summary>
+    internal static void CheckFonts()
+    {
+        InitFonts();
+        // PDFsharp turns a missing font into a NullReferenceException deep inside: check first
+        if (GlobalFontSettings.FontResolver is SystemFontResolver && SystemFontResolver.FontFile(false) == null)
+            throw new IOException(SystemFontResolver.NoFont);
     }
 
     /// <summary>
@@ -75,10 +84,7 @@ public static class PdfExporter
 
     public static void Write(ExportTable t, string path, ExportSettings o)
     {
-        InitFonts();
-        // PDFsharp turns a missing font into a NullReferenceException deep inside: check first
-        if (GlobalFontSettings.FontResolver is SystemFontResolver && SystemFontResolver.FontFile(false) == null)
-            throw new IOException(SystemFontResolver.NoFont);
+        CheckFonts();
         using var doc = new PdfDocument();
         doc.Info.Title = t.Title;
         doc.Info.Creator = "ByteAtlas";
