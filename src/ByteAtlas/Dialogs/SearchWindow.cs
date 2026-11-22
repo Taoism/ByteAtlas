@@ -419,7 +419,7 @@ public sealed class SearchWindow : Window
             if (Selected().FirstOrDefault() is { } r)
                 Shell.Properties(r.Path);
         });
-        Add("Delete (recycle bin)", () => _ = DeleteAsync(true));
+        Add($"Delete ({Shell.TrashName})", () => _ = DeleteAsync(true));
         Add("Delete for good", () => _ = DeleteAsync(false));
         return m;
     }
@@ -442,7 +442,7 @@ public sealed class SearchWindow : Window
             if (!await MessageBox.ConfirmAsync(this, "Every copy of at least one group is selected: nothing of those files would be left. Delete anyway?", "Delete all", "File search"))
                 return;
         }
-        if (!await MessageBox.ConfirmAsync(this, $"{(recycle ? "Move" : "Delete")} {sel.Count} files ({_settings.Size(sel.Sum(r => r.Size))}){(recycle ? " to the recycle bin" : " for good")}?", recycle ? "Move to recycle bin" : "Delete", "File search"))
+        if (!await MessageBox.ConfirmAsync(this, $"{(recycle ? "Move" : "Delete")} {sel.Count} files ({_settings.Size(sel.Sum(r => r.Size))}){(recycle ? " to the " + Shell.TrashName : " for good")}?", recycle ? "Move to " + Shell.TrashName : "Delete", "File search"))
             return;
         var r = await Task.Run(() => FileOperations.Delete([.. sel.Select(x => x.Path)], recycle), CancellationToken.None);
         Done(r, "Deleted", sel);

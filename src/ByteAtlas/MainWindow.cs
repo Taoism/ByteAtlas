@@ -401,6 +401,12 @@ public sealed partial class MainWindow : Window
         return m;
     }
 
+    private static MenuItem WinOrLinux(MenuItem m)
+    {
+        m.IsVisible = OperatingSystem.IsWindows() || OperatingSystem.IsLinux();
+        return m;
+    }
+
     private static MenuItem Check(string header, bool on, Action<bool> set)
     {
         var mi = new MenuItem { Header = header, ToggleType = MenuItemToggleType.CheckBox, IsChecked = on };
@@ -496,8 +502,8 @@ public sealed partial class MainWindow : Window
                 }
             }),
             new Separator(),
-            WinOnly(Item("Sc_hedule this scan…", ScheduleScanAsync)),
-            WinOnly(Item("_Manage scheduled scans…", ManageSchedulesAsync)),
+            WinOrLinux(Item("Sc_hedule this scan…", ScheduleScanAsync)),
+            WinOrLinux(Item("_Manage scheduled scans…", ManageSchedulesAsync)),
             new Separator(),
             Item("Show all _errors…", ShowErrorsAsync),
             WinOnly(Item("Start as a_dministrator", RestartAsAdmin)));
@@ -613,11 +619,7 @@ public sealed partial class MainWindow : Window
             })),
             WinOnly(Item("Search by _permissions…", () => OpenSearch(null, Search.SearchTemplate.Permissions))),
             new Separator(),
-            WinOnly(Item("Empty _recycle bin", () =>
-            {
-                Native.Platform.EmptyRecycleBin(TryGetPlatformHandle()?.Handle ?? IntPtr.Zero);
-                _drives.Refresh();
-            })),
+            Item(OperatingSystem.IsWindows() ? "Empty _recycle bin" : "Empty _trash", EmptyTrashAsync),
             WinOnly(Item("Remove obsolete so_ftware", () => Shell.RunAndForget("control.exe", "appwiz.cpl"))),
             WinOnly(Item("Configure system restore", () => Shell.RunAndForget("SystemPropertiesProtection.exe"))),
             WinOnly(Item("_Map network drive…", () =>
@@ -661,7 +663,7 @@ public sealed partial class MainWindow : Window
         F6       Move between the tree and the right side
         Treemap  Arrows: tiles · Enter: zoom in · Backspace: up · Shift+F10: menu
         Shift + right click  Windows Explorer menu
-        Del      Delete (recycle bin)      Shift+Del  Delete for good
+        Del      Delete (recycle bin / trash)  Shift+Del  Delete for good
         Ctrl+C   Copy path
         """;
 

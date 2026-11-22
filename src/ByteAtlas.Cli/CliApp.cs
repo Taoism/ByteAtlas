@@ -3,6 +3,7 @@ using System.Globalization;
 using ByteAtlas.Analysis;
 using ByteAtlas.Export;
 using ByteAtlas.Model;
+using ByteAtlas.Operations;
 using ByteAtlas.Scanning;
 using ByteAtlas.Search;
 using ByteAtlas.Storage;
@@ -26,6 +27,7 @@ internal static class CliApp
                 "compare" => await CompareAsync(args[1..]),
                 "search" => await SearchAsync(args[1..]),
                 "history" => History(args[1..]),
+                "schedule" => Schedule(args[1..]),
                 "--version" or "version" => Version(),
                 _ => Fail($"Unknown command '{args[0]}'. Run byteatlas-cli --help."),
             };
@@ -79,6 +81,11 @@ internal static class CliApp
                 [--name PATTERN] [--min-size 100MB] [--max-size 1GB] [--older-days N] [--newer-days N]
                 [--owner TEXT] [--hash md5|sha256|none] [--export FILE] [--max N]
           byteatlas-cli history <path> [--export FILE.csv]
+
+          byteatlas-cli schedule list | remove NAME
+          byteatlas-cli schedule add NAME daily|weekly|monthly|logon [HH:MM] [--day mon..sun] -- scan <path> [options]
+                                    Linux: a systemd user timer, else a crontab line, running this byteatlas-cli
+                                    (Windows: use the app, Scan › Schedule this scan, or schtasks)
 
         Exit codes: 0 ok, 1 error, 2 scan finished with errors / stopped.
         """;
@@ -445,6 +452,49 @@ internal static class CliApp
                 [new ExportColumn("Path", ColumnKind.Text), new ExportColumn("Group", ColumnKind.Number), new ExportColumn("Checksum", ColumnKind.Text)]);
             Write(t, export, new ExportSettings());
         }
+        return 0;
+    }
+
+    private static int Schedule(string[] a)
+    {
+        if (!OperatingSystem.IsLinux())
+            return Fail("schedule is for Linux; on Windows use the app (Scan › Schedule this scan) or schtasks");
+        if (a.Length == 0 || a[0] == "list")
+        {
+            var tasks = UnixScheduler.List();
+            if (tasks.Count == 0)
+                Console.WriteLine("no scheduled scans");
+            foreach (var t in tasks)
+                Console.WriteLine($"{t.Name}	{t.When}	{t.Backend}	{t.Command}");
+            return 0;
+        }
+        if (a[0] == "remove" && a.Length == 2)
+            return UnixScheduler.Delete(a[1]) ? 0 : Fail("no scheduled scan " + a[1]);
+        var sep = Array.IndexOf(a, "--");
+        if (a[0] != "add" || a.Length < 3 || sep < 3 || sep == a.Length - 1)
+            return Fail("usage: schedule add NAME daily|weekly|monthly|logon [HH:MM] [--day mon] -- scan <path> [options]");
+        var freq = a[2] switch
+        {
+            "daily" => ScheduleFrequency.Daily,
+            "weekly" => ScheduleFrequency.Weekly,
+            "monthly" => ScheduleFrequency.Monthly,
+            "logon" => ScheduleFrequency.AtLogon,
+            _ => throw new ArgumentException("when: daily, weekly, monthly or logon"),
+        };
+        var at = new TimeOnly(3, 0);
+        var day = DateTime.Now.DayOfWeek;
+        for (var i = 3; i < sep; i++)
+        {
+            if (a[i] == "--day" && i + 1 < sep)
+                day = Enum.GetValues<DayOfWeek>().FirstOrDefault(d => d.ToString().StartsWith(a[++i], StringComparison.OrdinalIgnoreCase), (DayOfWeek)(-1)) is var d && (int)d >= 0
+                    ? d : throw new ArgumentException("--day: mon, tue, wed, thu, fri, sat or sun");
+            else if (!TimeOnly.TryParse(a[i], CultureInfo.InvariantCulture, out at))
+                throw new ArgumentException("time as HH:MM, e.g. 03:00");
+        }
+        var cli = Environment.ProcessPath ?? "byteatlas-cli";
+        string[] command = [cli, .. a[(sep + 1)..]];
+        var backend = UnixScheduler.Create(a[1], command, freq, at, day);
+        Console.WriteLine($"scheduled {UnixScheduler.Slug(a[1])} ({backend}): {UnixScheduler.Describe(freq, at, day)}");
         return 0;
     }
 

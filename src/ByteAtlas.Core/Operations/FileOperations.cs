@@ -31,6 +31,25 @@ public static class FileOperations
         }
         var errors = new List<string>();
         var done = 0;
+        if (recycle)
+        {
+            // never fall back to deleting for good: what cannot go to the trash stays where it is
+            foreach (var p in paths)
+            {
+                try
+                {
+                    if (!OperatingSystem.IsLinux())
+                        throw new PlatformNotSupportedException("There is no trash on this system.");
+                    Trash.Move(p);
+                    done++;
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
+                {
+                    errors.Add($"{p}: {e.Message}");
+                }
+            }
+            return new OperationResult(done, errors.Count, errors);
+        }
         foreach (var p in paths)
         {
             try

@@ -155,13 +155,18 @@ public sealed class ScheduleDialog : DialogWindow
     private readonly CheckBox _history = new() { Content = "Add the result to the history", IsChecked = true };
     private readonly CheckBox _index = new() { Content = "Save an index file next to the export (for comparisons)" };
 
-    public ScheduleDialog(string path, AppSettings settings) : base("Schedule scan", 560)
+    public ScheduleDialog(string path, AppSettings settings, string? linuxBackend = null) : base("Schedule scan", 560)
     {
         _path = path;
         var safe = new string(path.Select(c => char.IsLetterOrDigit(c) ? c : '_').ToArray()).Trim('_');
-        _name = new TextBox { Text = "Scan " + safe };
+        _name = new TextBox { Text = "Scan " + (safe.Length == 0 ? "root" : safe) };
         var folder = string.IsNullOrEmpty(settings.ExportFolder) ? Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments) : settings.ExportFolder;
-        _export.Text = Path.Combine(folder, "ByteAtlas", safe + "_{date}.xlsx");
+        _export.Text = Path.Combine(folder, "ByteAtlas", (safe.Length == 0 ? "root" : safe) + "_{date}.xlsx");
+        var where = OperatingSystem.IsWindows()
+            ? "The task runs as the current user. It shows up in the Task Scheduler under \\ByteAtlas."
+            : OperatingSystem.IsLinux() && linuxBackend == "systemd"
+                ? $"The scan runs as you from a systemd user timer ({Path.Combine(Operations.UnixScheduler.UnitFolder, "byteatlas-…")}). Timers run while you are logged in; after \"loginctl enable-linger\" also when you are not. Missed runs are made up at the next start."
+                : "The scan runs as you from your crontab (crontab -l shows it). \"At log on\" runs when the computer starts.";
         SetBody(Column(10,
             Label($"Scan {path} on a schedule with the command line tool (byteatlas-cli) and write a report."),
             Row(8, Label("Task name:"), _name),
@@ -170,42 +175,57 @@ public sealed class ScheduleDialog : DialogWindow
             _export,
             _history,
             _index,
-            Label("The task runs as the current user. It shows up in the Task Scheduler under \\ByteAtlas.", true)), "Create");
+            Label(where, true)), "Create");
     }
 
-    public string TaskName => @"\ByteAtlas\" + (_name.Text ?? "Scan").Replace("\\", "_");
+    protected override async Task<bool> ValidateAsync()
+    {
+        if (_freq.SelectedIndex != 3 && !TimeOnly.TryParse(_time.Text, System.Globalization.CultureInfo.InvariantCulture, out _))
+        {
+            await MessageBox.ShowAsync(this, "Give the time as hours:minutes, e.g. 03:00.", MessageKind.Warning, Title ?? "");
+            return false;
+        }
+        if (string.IsNullOrWhiteSpace(_name.Text) || string.IsNullOrWhiteSpace(_export.Text))
+        {
+            await MessageBox.ShowAsync(this, "Give a task name and a report file.", MessageKind.Warning, Title ?? "");
+            return false;
+        }
+        return true;
+    }
 
-    public string Command
+    public string ScanName => (_name.Text ?? "Scan").Trim();
+
+    public string TaskName => @"\ByteAtlas\" + ScanName.Replace("\\", "_");
+
+    public Operations.ScheduleFrequency Frequency => _freq.SelectedIndex switch
+    {
+        0 => Operations.ScheduleFrequency.Daily,
+        2 => Operations.ScheduleFrequency.Monthly,
+        3 => Operations.ScheduleFrequency.AtLogon,
+        _ => Operations.ScheduleFrequency.Weekly,
+    };
+
+    public TimeOnly At => TimeOnly.TryParse(_time.Text, System.Globalization.CultureInfo.InvariantCulture, out var t) ? t : new TimeOnly(3, 0);
+
+    /// <summary>The command line tool and its arguments.</summary>
+    public List<string> Arguments
     {
         get
         {
-            var args = $"scan \"{_path}\" --export \"{_export.Text}\"";
+            var export = _export.Text ?? "";
+            var list = new List<string> { Shell.CliPath, "scan", _path, "--export", export };
             if (_history.IsChecked == true)
-                args += " --history";
+                list.Add("--history");
             if (_index.IsChecked == true)
-                args += " --save-index \"" + Path.ChangeExtension(_export.Text ?? "scan", ".badb") + "\"";
-            return $"\"{Shell.CliPath}\" {args}";
+                list.AddRange(["--save-index", Path.ChangeExtension(export.Length == 0 ? "scan" : export, ".badb")]);
+            return list;
         }
     }
 
-    public string[] SchTasksArgs()
-    {
-        var list = new List<string> { "/Create", "/F", "/TN", TaskName, "/TR", Command };
-        switch (_freq.SelectedIndex)
-        {
-            case 0:
-                list.AddRange(["/SC", "DAILY", "/ST", _time.Text ?? "03:00"]);
-                break;
-            case 2:
-                list.AddRange(["/SC", "MONTHLY", "/ST", _time.Text ?? "03:00"]);
-                break;
-            case 3:
-                list.AddRange(["/SC", "ONLOGON"]);
-                break;
-            default:
-                list.AddRange(["/SC", "WEEKLY", "/ST", _time.Text ?? "03:00"]);
-                break;
-        }
-        return [.. list];
-    }
+    /// <summary>The command as one Windows command line.</summary>
+    public string Command => Operations.WindowsTask.CommandLine(Arguments);
+
+    /// <summary>The Task Scheduler definition (weekly runs on today's weekday, like schtasks).</summary>
+    public string TaskXml() => Operations.WindowsTask.Xml(Arguments, Frequency, At, DateTime.Now.DayOfWeek,
+        Environment.UserDomainName + "\\" + Environment.UserName, DateTime.Now);
 }

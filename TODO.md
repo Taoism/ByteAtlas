@@ -70,13 +70,19 @@ clean-room, open source. Version 0.1.0 (2026-11-21).
   Folder walk reads owner, allocated blocks, hard links (statx) and stays on one file system; drive list shows real
   mounts only; Windows-only menus and options hidden.
 - PDF fonts: fixed broken Arial fallback paths, Fedora / Noto locations, any installed font as a last resort.
+- Linux trash (freedesktop.org spec: home trash, $topdir/.Trash/$uid or .Trash-$uid on other drives, .trashinfo
+  records byte-identical to gio's; never falls back to deleting for good), Empty trash. Before this, "Delete (recycle
+  bin)" on Linux deleted for good.
+- Linux scheduled scans: systemd user timers (Persistent=true) or crontab lines; same dialog + manage list as Windows;
+  `byteatlas-cli schedule add|list|remove` for servers. Tested: systemd timer in WSL, real cron run in Debian.
+- Test suite runs on Linux too (tests/linux/run-tests.sh, .NET SDK container): 59/59.
 
 ## Open
 
 - [ ] More remote sources: SharePoint / OneDrive through Microsoft Graph (sign-in), Outlook mailboxes, phones via MTP.
 - [ ] Report designer + print preview inside the app; SMTP mail; portable mode; cleanup recommendations;
       treemap colour by age / growth; SMART disk health.
-- [ ] Linux arm64 and macOS packages; Linux: SMART, trash (freedesktop) for deletes, cron for scheduled scans.
+- [ ] Linux arm64 and macOS packages; Linux SMART.
 - [ ] Print preview inside the app (currently: PDF opened in the viewer).
 - [ ] Explorer menu and drag-out need a manual check (UI automation cannot drive them).
 - [ ] Release: publish GUI + CLI side by side (GUI looks for byteatlas-cli next to itself), installer, portable zip,

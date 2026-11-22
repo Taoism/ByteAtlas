@@ -18,6 +18,9 @@ internal static class Shell
             Open(path);
     }
 
+    /// <summary>What deleted files go to: "recycle bin" on Windows, "trash" elsewhere.</summary>
+    public static string TrashName => OperatingSystem.IsWindows() ? "recycle bin" : "trash";
+
     public static void Open(string path)
     {
         try

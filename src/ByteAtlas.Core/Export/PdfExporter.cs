@@ -48,14 +48,13 @@ public static class PdfExporter
         public FontResolverInfo ResolveTypeface(string familyName, bool isBold, bool isItalic) =>
             new(isBold ? "ba-bold" : "ba-regular");
 
-        public byte[]? GetFont(string faceName)
-        {
-            var file = (faceName == "ba-bold" ? Bold : Regular).FirstOrDefault(File.Exists)
-                ?? Regular.FirstOrDefault(File.Exists)
-                ?? AnyFont()
-                ?? throw new IOException("No TrueType font found for the PDF report. Install a font package (fonts-dejavu-core, dejavu-sans-fonts, …).");
-            return File.ReadAllBytes(file);
-        }
+        public const string NoFont = "No TrueType font found for the PDF report. Install a font package (fonts-dejavu-core, dejavu-sans-fonts, …).";
+
+        public static string? FontFile(bool bold) =>
+            (bold ? Bold : Regular).FirstOrDefault(File.Exists) ?? Regular.FirstOrDefault(File.Exists) ?? AnyFont();
+
+        public byte[]? GetFont(string faceName) =>
+            FontFile(faceName == "ba-bold") is { } file ? File.ReadAllBytes(file) : null;
 
         private static string? AnyFont()
         {
@@ -77,6 +76,9 @@ public static class PdfExporter
     public static void Write(ExportTable t, string path, ExportSettings o)
     {
         InitFonts();
+        // PDFsharp turns a missing font into a NullReferenceException deep inside: check first
+        if (GlobalFontSettings.FontResolver is SystemFontResolver && SystemFontResolver.FontFile(false) == null)
+            throw new IOException(SystemFontResolver.NoFont);
         using var doc = new PdfDocument();
         doc.Info.Title = t.Title;
         doc.Info.Creator = "ByteAtlas";

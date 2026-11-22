@@ -21,6 +21,12 @@ internal static partial class UnixStat
     [LibraryImport("libc", EntryPoint = "statx", StringMarshalling = StringMarshalling.Utf8)]
     private static partial int Statx(int dirfd, string path, int flags, uint mask, [Out] byte[] buffer);
 
+    [LibraryImport("libc", EntryPoint = "getuid")]
+    private static partial uint GetUid();
+
+    /// <summary>The user id this process runs as.</summary>
+    public static uint CurrentUid => GetUid();
+
     private static bool _missing;
 
     /// <summary>Details of a file or folder (links are not followed); false when it cannot be read.</summary>

@@ -88,7 +88,7 @@ public sealed partial class MainWindow
                 OpenSearch([d.FullPath], null);
         }));
         m.Items.Add(new Separator());
-        m.Items.Add(Item("Delete (recycle bin)", () => DeleteItemsAsync(items(), true)));
+        m.Items.Add(Item($"Delete ({Shell.TrashName})", () => DeleteItemsAsync(items(), true)));
         m.Items.Add(Item("Delete for good…", () => DeleteItemsAsync(items(), false)));
         m.Items.Add(Item("Move / copy…", () => MoveCopyAsync(items())));
         m.Items.Add(Item("Rename…", () => RenameAsync(items().FirstOrDefault())));
@@ -153,6 +153,30 @@ public sealed partial class MainWindow
 
     private Task DeleteSelectedAsync(bool recycle) => DeleteItemsAsync(SelectedItemsForAction(), recycle);
 
+    private async Task EmptyTrashAsync()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            // Windows asks itself (with the size)
+            Native.Platform.EmptyRecycleBin(TryGetPlatformHandle()?.Handle ?? IntPtr.Zero);
+            _drives.Refresh();
+            return;
+        }
+        if (!OperatingSystem.IsLinux())
+            return;
+        var (items, bytes) = await Task.Run(Operations.Trash.HomeTrashSize, CancellationToken.None);
+        if (items == 0)
+        {
+            await MessageBox.ShowAsync(this, "The trash is empty.", MessageKind.Info, "Empty trash");
+            return;
+        }
+        if (!await MessageBox.ConfirmAsync(this, $"Delete the {items} item{(items == 1 ? "" : "s")} in the trash ({_settings.Size(bytes)}) for good? This cannot be undone.", "Empty trash", "Empty trash"))
+            return;
+        var r = await Task.Run(Operations.Trash.EmptyHome, CancellationToken.None);
+        _drives.Refresh();
+        await ReportAsync(r, "Emptied the trash");
+    }
+
     private async Task DeleteItemsAsync(List<Item> items, bool recycle)
     {
         items = [.. items.Where(i => i.Parent != null)];
@@ -161,9 +185,9 @@ public sealed partial class MainWindow
         var total = items.Sum(i => i.Size);
         var what = items.Count == 1 ? $"\"{items[0].FullPath}\"" : $"{items.Count} items";
         var text = recycle
-            ? $"Move {what} ({_settings.Size(total)}) to the recycle bin?"
+            ? $"Move {what} ({_settings.Size(total)}) to the {Shell.TrashName}?"
             : $"Delete {what} ({_settings.Size(total)}) for good? This cannot be undone.";
-        if (!await MessageBox.ConfirmAsync(this, text, recycle ? "Move to recycle bin" : "Delete", "ByteAtlas"))
+        if (!await MessageBox.ConfirmAsync(this, text, recycle ? "Move to " + Shell.TrashName : "Delete", "ByteAtlas"))
             return;
         var r = await Task.Run(() => FileOperations.Delete([.. items.Select(i => i.FullPath)], recycle), CancellationToken.None);
         // take the deleted items out of the tree
@@ -175,7 +199,7 @@ public sealed partial class MainWindow
         _tree.Rebuild();
         UpdateViews(true);
         _drives.Refresh();
-        await ReportAsync(r, recycle ? "Moved to the recycle bin" : "Deleted");
+        await ReportAsync(r, recycle ? "Moved to the " + Shell.TrashName : "Deleted");
     }
 
     private async Task ReportAsync(OperationResult r, string verb)
@@ -668,17 +692,102 @@ public sealed partial class MainWindow
 
     private async Task ScheduleScanAsync()
     {
-        if (RealScan() is not { } s || !OperatingSystem.IsWindows())
+        if (RealScan() is not { } s)
+            return;
+        if (s.Remote != null || _mountedImages.ContainsKey(s))
+        {
+            await MessageBox.ShowAsync(this, "Scheduled scans are for drives and folders of this computer.", MessageKind.Info, "Schedule scan");
+            return;
+        }
+        if (!File.Exists(Shell.CliPath))
+        {
+            await MessageBox.ShowAsync(this, $"Scheduled scans run the command line tool, which is not next to the app:\n{Shell.CliPath}\n\nInstall ByteAtlas with its installer or package (they include byteatlas-cli).", MessageKind.Warning, "Schedule scan");
+            return;
+        }
+        if (OperatingSystem.IsLinux())
+        {
+            await ScheduleScanLinuxAsync(s);
+            return;
+        }
+        if (!OperatingSystem.IsWindows())
             return;
         var dlg = new ScheduleDialog(s.Path, _settings);
         if (!await dlg.ShowDialog<bool>(this))
             return;
-        var (ok, output) = Shell.SchTasks(dlg.SchTasksArgs());
+        // schtasks reads the definition from a file (UTF-16, as the XML declares)
+        var xml = Path.Combine(Path.GetTempPath(), $"byteatlas-task-{Guid.NewGuid():N}.xml");
+        bool ok;
+        string output;
+        try
+        {
+            await File.WriteAllTextAsync(xml, dlg.TaskXml(), Encoding.Unicode, CancellationToken.None);
+            (ok, output) = Shell.SchTasks("/Create", "/F", "/TN", dlg.TaskName, "/XML", xml);
+        }
+        finally
+        {
+            File.Delete(xml);
+        }
         await MessageBox.ShowAsync(this, ok ? $"Scheduled task \"{dlg.TaskName}\" created.\n\nIt runs:\n{dlg.Command}" : "The task could not be created:\n" + output, ok ? MessageKind.Info : MessageKind.Error, "Schedule scan");
+    }
+
+    [System.Runtime.Versioning.SupportedOSPlatform("linux")]
+    private async Task ScheduleScanLinuxAsync(ScanSession s)
+    {
+        var backend = await Task.Run(() => Operations.UnixScheduler.Backend, CancellationToken.None);
+        if (backend == null)
+        {
+            await MessageBox.ShowAsync(this, "Neither systemd user timers nor cron are available on this system: install cron (cronie) to schedule scans.", MessageKind.Warning, "Schedule scan");
+            return;
+        }
+        var dlg = new ScheduleDialog(s.Path, _settings, backend);
+        if (!await dlg.ShowDialog<bool>(this))
+            return;
+        var day = DateTime.Now.DayOfWeek;
+        try
+        {
+            var used = await Task.Run(() => Operations.UnixScheduler.Create(dlg.ScanName, dlg.Arguments, dlg.Frequency, dlg.At, day), CancellationToken.None);
+            var where = used == "systemd" ? $"systemd user timer byteatlas-{Operations.UnixScheduler.Slug(dlg.ScanName)}.timer" : "your crontab";
+            await MessageBox.ShowAsync(this, $"Scheduled scan \"{Operations.UnixScheduler.Slug(dlg.ScanName)}\" created ({where}).\n\nIt runs {Operations.UnixScheduler.Describe(dlg.Frequency, dlg.At, day)}:\n{string.Join(' ', dlg.Arguments)}", MessageKind.Info, "Schedule scan");
+        }
+        catch (IOException e)
+        {
+            await MessageBox.ShowAsync(this, "The schedule could not be created:\n" + e.Message, MessageKind.Error, "Schedule scan");
+        }
+    }
+
+    [System.Runtime.Versioning.SupportedOSPlatform("linux")]
+    private async Task ManageSchedulesLinuxAsync()
+    {
+        var tasks = await Task.Run(Operations.UnixScheduler.List, CancellationToken.None);
+        if (tasks.Count == 0)
+        {
+            await MessageBox.ShowAsync(this, "There are no scheduled ByteAtlas scans. Use Scan › Schedule this scan to create one.", MessageKind.Info, "Scheduled scans");
+            return;
+        }
+        var rows = tasks.Select(t => $"{t.Name}  ·  {t.When}  ·  {t.Backend}  ·  {t.Command}").ToList();
+        var pick = await ListDialog.PickAsync(this, "Scheduled scans", "Choose a scheduled scan to delete (systemd user timers byteatlas-*.timer, or lines in your crontab):", rows, "Delete");
+        if (pick < 0)
+            return;
+        if (!await MessageBox.ConfirmAsync(this, $"Delete the scheduled scan {tasks[pick].Name}?", "Delete", "Scheduled scans"))
+            return;
+        try
+        {
+            await Task.Run(() => Operations.UnixScheduler.Delete(tasks[pick].Name), CancellationToken.None);
+            SetStatus("Scheduled scan deleted.");
+        }
+        catch (IOException e)
+        {
+            SetStatus(e.Message);
+        }
     }
 
     private async Task ManageSchedulesAsync()
     {
+        if (OperatingSystem.IsLinux())
+        {
+            await ManageSchedulesLinuxAsync();
+            return;
+        }
         var (_, output) = Shell.SchTasks("/Query", "/FO", "LIST", "/TN", @"\ByteAtlas\");
         var tasks = output.Split('\n').Where(l => l.StartsWith("TaskName:", StringComparison.OrdinalIgnoreCase)).Select(l => l["TaskName:".Length..].Trim()).Distinct().ToList();
         if (tasks.Count == 0)

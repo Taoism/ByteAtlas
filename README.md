@@ -20,8 +20,10 @@ no .NET needed; each has the app and the `byteatlas-cli` command):
 | Other Linux | `ByteAtlas-<v>-linux-x64.tar.gz`: unpack, run `./ByteAtlas` |
 
 On Linux the folder walk reads owners, real allocated sizes and hard links (counted once) and stays on one file
-system unless *Follow mount points* is on. Windows-only features (master file table, NTFS compression and
-permissions, snapshots, Explorer menu) are hidden there.
+system unless *Follow mount points* is on. Deleting moves files to the desktop **trash** (freedesktop.org, so
+GNOME / KDE / Xfce can restore them; other drives use their own `.Trash-<uid>`). **Scheduled scans** become systemd
+user timers, or crontab lines where there is no user systemd. Windows-only features (master file table, NTFS
+compression and permissions, snapshots, Explorer menu) are hidden there.
 
 ## Features
 
@@ -79,7 +81,7 @@ and real size on disk, compress or uncompress files and folders.
 **Windows integration** — the real **Explorer right-click menu** (Shift + right click, or "Explorer menu…"), **drag
 files out** into Explorer, Explorer context menu ("Analyze / Search with ByteAtlas"), properties dialog, open
 command prompt here, NTFS compress / decompress, empty recycle bin, map network drive, start as administrator,
-**scheduled scans** (Task Scheduler running `byteatlas-cli`).
+**scheduled scans** (Task Scheduler running `byteatlas-cli`; on Linux systemd timers or cron).
 
 ## Command line
 
@@ -88,6 +90,7 @@ byteatlas-cli scan D:\ --export "D:\Reports\d_{date}.xlsx" --save-index "D:\Repo
 byteatlas-cli compare D:\ "D:\Reports\d_2026-11-01.badb" --export changes.html
 byteatlas-cli search E:\ --template duplicates --hash sha256 --export dups.csv
 byteatlas-cli history C:\
+byteatlas-cli schedule add home weekly 03:00 --day sun -- scan /home --export ~/reports/home_{date}.xlsx --history   (Linux)
 byteatlas-cli scan ssh://me@server/srv --export srv.html
 byteatlas-cli scan s3://my-bucket/logs --access-key AKIA… --export logs.xlsx
 byteatlas-cli scan s3+https://s3.wasabisys.com/my-bucket --access-key …

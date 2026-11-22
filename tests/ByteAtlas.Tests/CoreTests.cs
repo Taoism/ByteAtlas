@@ -30,7 +30,8 @@ public sealed class TempTree : IDisposable
 
     public string Write(string rel, int size, int seed = 1)
     {
-        var p = Path.Combine(Root, rel);
+        // the tests name paths Windows-style; on Linux \ would be part of the file name
+        var p = Path.Combine(Root, rel.Replace('\\', Path.DirectorySeparatorChar));
         Directory.CreateDirectory(Path.GetDirectoryName(p)!);
         var data = new byte[size];
         new Random(seed).NextBytes(data);
