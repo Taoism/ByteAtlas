@@ -22,8 +22,15 @@ $version = ([xml](Get-Content Directory.Build.props)).SelectSingleNode('//Versio
 Write-Host "ByteAtlas $version" -ForegroundColor Cyan
 
 $release = Join-Path $root 'release'
-if (Test-Path $release) { Remove-Item $release -Recurse -Force }
-New-Item -ItemType Directory $release | Out-Null
+if ($WindowsOnly) {
+    # keep the Linux packages of an earlier full build
+    New-Item -ItemType Directory $release -Force | Out-Null
+    Get-ChildItem $release -File -Filter '*win-x64*' | Remove-Item -Force
+}
+else {
+    if (Test-Path $release) { Remove-Item $release -Recurse -Force }
+    New-Item -ItemType Directory $release | Out-Null
+}
 
 $rids = if ($WindowsOnly) { @('win-x64') } else { @('win-x64', 'linux-x64') }
 foreach ($rid in $rids) {

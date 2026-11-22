@@ -5,6 +5,7 @@
     <RootNamespace>ByteAtlas</RootNamespace>
     <AssemblyName>ByteAtlas</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets/byteatlas.ico</ApplicationIcon>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
   </PropertyGroup>

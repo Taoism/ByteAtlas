@@ -4,6 +4,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>ByteAtlas.Cli</RootNamespace>
     <AssemblyName>byteatlas-cli</AssemblyName>
+    <ApplicationIcon>../ByteAtlas/Assets/byteatlas.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\ByteAtlas.Core\ByteAtlas.Core.csproj" />
