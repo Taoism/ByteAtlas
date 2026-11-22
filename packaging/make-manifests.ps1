@@ -106,7 +106,7 @@ $scoop = [ordered]@{
     }
     bin         = 'byteatlas-cli.exe'
     shortcuts   = @(, @('ByteAtlas.exe', 'ByteAtlas'))
-    persist     = @()
+    persist     = 'data'
     checkver    = [ordered]@{ github = 'https://github.com/Taoism/ByteAtlas' }
     autoupdate  = [ordered]@{
         architecture = [ordered]@{
@@ -118,6 +118,5 @@ $scoop = [ordered]@{
         hash = [ordered]@{ url = '$baseurl/SHA256SUMS.txt' }
     }
 }
-$scoop.Remove('persist')
 $scoop | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $bucket 'byteatlas.json') -Encoding utf8NoBOM
 Write-Host "manifests: packaging\winget\$Version, bucket\byteatlas.json"

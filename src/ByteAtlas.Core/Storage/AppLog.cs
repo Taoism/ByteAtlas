@@ -14,8 +14,7 @@ public static class AppLog
     private static readonly Lock Gate = new();
     private static bool _trimmed;
 
-    public static string Folder { get; set; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ByteAtlas", "logs");
+    public static string Folder { get; set; } = Path.Combine(AppPaths.Local, "logs");
 
     public static string CurrentFile => Path.Combine(Folder, $"byteatlas-{DateTime.Now:yyyy-MM-dd}.log");
 

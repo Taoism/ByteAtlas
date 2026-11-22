@@ -17,7 +17,7 @@ public static class RemoteSources
 
     /// <summary>Where <see cref="KnownHosts"/> is kept (shared by the app and byteatlas-cli); null = memory only.</summary>
     public static string? KnownHostsFile { get; set; } =
-        System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ByteAtlas", "ssh-known-hosts.txt");
+        System.IO.Path.Combine(Storage.AppPaths.Roaming, "ssh-known-hosts.txt");
 
     private static bool _hostsLoaded;
 

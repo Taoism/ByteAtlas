@@ -185,10 +185,10 @@ public sealed class AppSettings
     /// <summary>The file groups, made once per change (charts colour every type with it).</summary>
     public FileGroups FileGroupSet => _groupSet ??= new() { Groups = FileGroups };
 
-    public static string Folder => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ByteAtlas");
+    public static string Folder => Storage.AppPaths.Roaming;
 
     /// <summary>Scan cache folder.</summary>
-    public static string CacheFolder => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ByteAtlas", "cache");
+    public static string CacheFolder => Path.Combine(Storage.AppPaths.Local, "cache");
 
     private static string FilePath => Path.Combine(Folder, "settings.json");
 

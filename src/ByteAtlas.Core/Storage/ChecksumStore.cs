@@ -33,8 +33,7 @@ public sealed class ChecksumStore : IChecksumCache, IDisposable
         c.ExecuteNonQuery();
     }
 
-    public static string DefaultFile => System.IO.Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ByteAtlas", "checksums.db");
+    public static string DefaultFile => System.IO.Path.Combine(AppPaths.Local, "checksums.db");
 
     public string File { get; }
 

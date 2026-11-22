@@ -53,7 +53,7 @@ public sealed partial class MainWindow : Window
         {
             AppIcon = null;
         }
-        Title = "ByteAtlas" + (Shell.IsAdmin ? " (Administrator)" : "");
+        Title = "ByteAtlas" + (Storage.AppPaths.IsPortable ? " (portable)" : "") + (Shell.IsAdmin ? " (Administrator)" : "");
         Width = settings.WindowWidth;
         Height = settings.WindowHeight;
         MinWidth = 900;
@@ -533,6 +533,8 @@ public sealed partial class MainWindow : Window
             Item("Set _title…", SetTitleAsync),
             Item("_Remove scan", RemoveSelectedScan),
             new Separator(),
+            Item("Create _portable copy…", CreatePortableCopyAsync),
+            new Separator(),
             Item("E_xit", Close));
 
         var scan = Sub("_Scan",
@@ -848,6 +850,28 @@ public sealed partial class MainWindow : Window
                 _settings.Recent.Clear();
                 RefreshRecentMenu();
             }));
+        }
+    }
+
+    /// <summary>Copies the program to a folder (a USB stick) that keeps its settings and history next to itself.</summary>
+    private async Task CreatePortableCopyAsync()
+    {
+        var target = await PickFolderAsync("Folder for the portable copy (an empty folder, e.g. on a USB stick)");
+        if (target == null)
+            return;
+        if (Directory.Exists(target) && Directory.EnumerateFileSystemEntries(target).Any()
+            && !await Dialogs.MessageBox.ConfirmAsync(this, $"{target} is not empty. Copy ByteAtlas into it anyway (files with the same names are replaced)?", "Copy", "Portable copy"))
+            return;
+        var withData = await Dialogs.MessageBox.ConfirmAsync(this, "Take the current settings, history and remembered checksums along?\n\nCancel makes a copy with default settings.", "Take them along", "Portable copy");
+        _settings.Save();
+        try
+        {
+            var n = await Task.Run(() => Storage.AppPaths.CreatePortableCopy(target, withData), CancellationToken.None);
+            await Dialogs.MessageBox.ShowAsync(this, $"ByteAtlas was copied to {target} ({n:N0} files). Start ByteAtlas{(OperatingSystem.IsWindows() ? ".exe" : "")} there: it keeps its settings, history and logs in the \"data\" folder next to it.", Dialogs.MessageKind.Info, "Portable copy");
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            await Dialogs.MessageBox.ShowAsync(this, "The copy failed: " + e.Message, Dialogs.MessageKind.Error, "Portable copy");
         }
     }
 

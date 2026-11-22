@@ -835,3 +835,32 @@ public class GrowthTests
         }
     }
 }
+
+public class PortableTests
+{
+    [Fact]
+    public void PortableCopyHasMarkerAndOwnHistory()
+    {
+        var home = Path.Combine(Path.GetTempPath(), "byteatlas-home-" + Guid.NewGuid().ToString("N")[..8]);
+        var target = Path.Combine(Path.GetTempPath(), "byteatlas-portable-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(home);
+        File.WriteAllText(Path.Combine(home, "settings.json"), """{ "Theme": "Light", "HistoryFile": "D:\\elsewhere\\history.db" }""");
+        AppPaths.Override = home;
+        try
+        {
+            var n = AppPaths.CreatePortableCopy(target, withData: true);
+            Assert.True(n > 0);
+            Assert.True(File.Exists(Path.Combine(target, AppPaths.MarkerName)));
+            var settings = File.ReadAllText(Path.Combine(target, "data", "settings.json"));
+            Assert.Contains("Light", settings);
+            Assert.DoesNotContain("elsewhere", settings); // the copy keeps its own history
+            Assert.Throws<IOException>(() => AppPaths.CreatePortableCopy(Path.Combine(AppContext.BaseDirectory, "x"), false));
+        }
+        finally
+        {
+            AppPaths.Override = null;
+            Directory.Delete(home, true);
+            Directory.Delete(target, true);
+        }
+    }
+}

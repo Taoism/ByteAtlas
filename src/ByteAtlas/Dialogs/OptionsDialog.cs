@@ -461,6 +461,9 @@ public sealed class OptionsDialog : DialogWindow
             page.Children.Add(Label("On Windows 11 these entries are under \"Show more options\" (Shift+F10).", true));
         }
         page.Children.Add(H("Data"));
+        page.Children.Add(Label(Storage.AppPaths.IsPortable
+            ? $"Portable: everything is kept in {Storage.AppPaths.Portable} (delete {Storage.AppPaths.MarkerName} next to the program to use the normal folders)."
+            : "Installed: data is kept in your user profile. File › Create portable copy… makes a copy that keeps everything next to itself.", true));
         page.Children.Add(Label("Settings: " + AppSettings.Folder, true));
         page.Children.Add(Label("History: " + (string.IsNullOrEmpty(_s.HistoryFile) ? Storage.HistoryStore.DefaultFile : _s.HistoryFile), true));
         return page;

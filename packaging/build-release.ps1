@@ -53,6 +53,9 @@ if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
 $zipRoot = Join-Path $stage "ByteAtlas-$version-win-x64"
 Copy-Item publish\win-x64 $zipRoot -Recurse
 Copy-Item LICENSE (Join-Path $zipRoot 'LICENSE.txt')
+# the zip is portable: settings, history and logs stay in its data folder
+'ByteAtlas portable: settings, history, checksums, cache and logs are kept in the "data" folder next to this file.',
+'Delete this file to use the normal folders of your user account instead.' | Set-Content (Join-Path $zipRoot 'portable.txt')
 Compress-Archive -Path $zipRoot -DestinationPath (Join-Path $release "ByteAtlas-$version-win-x64.zip") -CompressionLevel Optimal
 Remove-Item $stage -Recurse -Force
 

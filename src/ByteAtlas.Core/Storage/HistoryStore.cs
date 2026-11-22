@@ -12,8 +12,7 @@ public sealed class HistoryStore
 {
     public HistoryStore(string? file = null) => File = file ?? DefaultFile;
 
-    public static string DefaultFile => System.IO.Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ByteAtlas", "history.db");
+    public static string DefaultFile => System.IO.Path.Combine(AppPaths.Local, "history.db");
 
     public string File { get; private set; }
 
