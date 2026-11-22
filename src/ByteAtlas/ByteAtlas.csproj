@@ -22,4 +22,10 @@
     <AvaloniaResource Include="Assets\**" />
     <None Include="../../LICENSE" Link="LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
+  <!-- native debug symbols from SkiaSharp/HarfBuzz are not shipped -->
+  <Target Name="ByteAtlasDropNativePdbs" AfterTargets="ComputeResolvedFilesToPublishList">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="'%(Extension)' == '.pdb'" />
+    </ItemGroup>
+  </Target>
 </Project>
