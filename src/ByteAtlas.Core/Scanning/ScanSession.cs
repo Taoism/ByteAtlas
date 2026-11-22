@@ -119,6 +119,9 @@ public sealed class ScanSession
     public int ClusterSize { get; internal set; } = 4096;
     public string FileSystem { get; internal set; } = "";
 
+    /// <summary>Set for scans of SSH / S3 / Azure / WebDAV sources (the path is then only a label).</summary>
+    public Remote.RemoteSpec? Remote { get; init; }
+
     /// <summary>A background scan replacing this one (progress is read from it); null otherwise.</summary>
     public ScanSession? Progress { get; internal set; }
 

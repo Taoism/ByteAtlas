@@ -15,6 +15,13 @@ public static class Scanner
         s.ScanDate = s.Started;
         try
         {
+            if (s.Remote != null)
+            {
+                Remote.RemoteSources.Scan(s, s.Remote, ct);
+                Finish(s);
+                s.State = ScanState.Done;
+                return;
+            }
             var path = s.Root.Name;
             if (!Directory.Exists(path))
                 throw new DirectoryNotFoundException($"Path not found: {path}");
@@ -96,7 +103,7 @@ public static class Scanner
             Finish(s);
             s.State = ScanState.Failed;
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidOperationException)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidOperationException or HttpRequestException or ArgumentException or System.Xml.XmlException or Renci.SshNet.Common.SshException)
         {
             s.AddError(s.Path, e.Message);
             s.Root.Error = e.Message;
@@ -153,7 +160,7 @@ public static class Scanner
                 return;
             }
             // scan into a second session and swap when done: the old tree stays on screen meanwhile
-            var fresh = new ScanSession(s.Path, s.Options) { Title = s.Title };
+            var fresh = new ScanSession(s.Path, s.Options) { Title = s.Title, Remote = s.Remote };
             s.Progress = fresh;
             s.State = ScanState.Scanning;
             try
