@@ -734,7 +734,7 @@ public class DuplicateTabTests
         var b = Path.Combine(t.Root, "other", "dup2.dat");
         File.SetLastWriteTimeUtc(b, new DateTime(2020, 1, 2, 3, 4, 5, DateTimeKind.Utc));
         var r = FileOperations.ReplaceWithClones(a, [b]);
-        if (OperatingSystem.IsWindows() && ByteAtlas.Native.FileClone.CanClone(a))
+        if (OperatingSystem.IsWindows() ? ByteAtlas.Native.FileClone.CanClone(a) : Environment.GetEnvironmentVariable("BYTEATLAS_EXPECT_CLONE") == "1")
             Assert.Equal(1, r.Done);
         Assert.Equal(File.ReadAllBytes(a), File.ReadAllBytes(b));
         Assert.Empty(Directory.GetFiles(Path.Combine(t.Root, "other"), "*.byteatlas-*"));
