@@ -241,7 +241,7 @@ public sealed partial class MainWindow : Window
         Operations.ReleaseInfo? r;
         try
         {
-            r = await Operations.UpdateCheck.LatestAsync();
+            r = await Operations.UpdateCheck.LatestAsync(CancellationToken.None);
             _settings.LastUpdateCheck = DateTime.UtcNow;
         }
         catch (Exception e) when (e is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)

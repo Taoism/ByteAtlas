@@ -67,7 +67,7 @@ internal static partial class FileClone
     private const ulong Ficlone = 0x40049409;
 
     [LibraryImport("libc", EntryPoint = "ioctl", SetLastError = true)]
-    private static partial int IoctlInt(int fd, ulong request, int arg);
+    private static partial int IoctlClone(SafeFileHandle fd, ulong request, SafeFileHandle source);
 
     [LibraryImport("libc", EntryPoint = "link", SetLastError = true, StringMarshalling = StringMarshalling.Utf8)]
     private static partial int Link(string existing, string newName);
@@ -118,20 +118,32 @@ internal static partial class FileClone
             if ((File.GetAttributes(source) & FileAttributes.SparseFile) != 0)
                 SetSparse(dst, FsctlSetSparse, IntPtr.Zero, 0, IntPtr.Zero, 0, out _, IntPtr.Zero);
             RandomAccess.SetLength(dst, length);
-            // whole clusters, at most 1 GB per call (older ReFS refuses 4 GB and more)
+            // whole clusters, at most 1 GB per call (older ReFS refuses 4 GB and more). The source handle goes
+            // inside the input struct, so it is held (AddRef) while the raw value is in use.
             const long Chunk = 1L << 30;
-            for (long off = 0; off < length; off += Chunk)
+            var held = false;
+            try
             {
-                var count = Math.Min(Chunk, length - off);
-                count = (count + cluster - 1) / cluster * cluster;
-                var d = new DuplicateExtentsData { FileHandle = src.DangerousGetHandle(), SourceFileOffset = off, TargetFileOffset = off, ByteCount = count };
-                if (!Duplicate(dst, FsctlDuplicateExtentsToFile, ref d, Marshal.SizeOf<DuplicateExtentsData>(), IntPtr.Zero, 0, out _, IntPtr.Zero))
+                src.DangerousAddRef(ref held);
+                var raw = src.DangerousGetHandle();
+                for (long off = 0; off < length; off += Chunk)
                 {
-                    var err = Marshal.GetLastWin32Error();
-                    throw new IOException(err is 1 or 50 // ERROR_INVALID_FUNCTION, ERROR_NOT_SUPPORTED
-                        ? "this drive cannot clone files (block cloning needs ReFS or a Dev Drive)"
-                        : new Win32Exception(err).Message);
+                    var count = Math.Min(Chunk, length - off);
+                    count = (count + cluster - 1) / cluster * cluster;
+                    var d = new DuplicateExtentsData { FileHandle = raw, SourceFileOffset = off, TargetFileOffset = off, ByteCount = count };
+                    if (!Duplicate(dst, FsctlDuplicateExtentsToFile, ref d, Marshal.SizeOf<DuplicateExtentsData>(), IntPtr.Zero, 0, out _, IntPtr.Zero))
+                    {
+                        var err = Marshal.GetLastWin32Error();
+                        throw new IOException(err is 1 or 50 // ERROR_INVALID_FUNCTION, ERROR_NOT_SUPPORTED
+                            ? "this drive cannot clone files (block cloning needs ReFS or a Dev Drive)"
+                            : new Win32Exception(err).Message);
+                    }
                 }
+            }
+            finally
+            {
+                if (held)
+                    src.DangerousRelease();
             }
             ok = true;
         }
@@ -150,7 +162,7 @@ internal static partial class FileClone
         var dst = File.OpenHandle(target, FileMode.CreateNew, FileAccess.Write);
         try
         {
-            if (IoctlInt((int)dst.DangerousGetHandle(), Ficlone, (int)src.DangerousGetHandle()) != 0)
+            if (IoctlClone(dst, Ficlone, src) != 0)
             {
                 var err = Marshal.GetLastPInvokeError();
                 throw new IOException(err is 95 or 25 or 22 or 18 // EOPNOTSUPP, ENOTTY, EINVAL, EXDEV
@@ -174,10 +186,10 @@ internal static partial class FileClone
 
     [LibraryImport("kernel32.dll", EntryPoint = "DeviceIoControl", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool IoctlBytes(SafeFileHandle h, uint code, byte[] inBuf, int inSize, byte[] outBuf, int outSize, out int returned, IntPtr overlapped);
+    private static partial bool IoctlBytes(SafeFileHandle h, uint code, [In] byte[] inBuf, int inSize, [Out] byte[] outBuf, int outSize, out int returned, IntPtr overlapped);
 
     [LibraryImport("libc", EntryPoint = "ioctl", SetLastError = true)]
-    private static partial int IoctlBuffer(int fd, ulong request, byte[] arg);
+    private static partial int IoctlBuffer(SafeFileHandle fd, ulong request, [In, Out] byte[] arg);
 
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> CloneVolumes = new(StringComparer.OrdinalIgnoreCase);
 
@@ -215,7 +227,7 @@ internal static partial class FileClone
                 var buf = new byte[32 + 56];
                 BitConverter.TryWriteBytes(buf.AsSpan(8), ulong.MaxValue); // fm_length: whole file
                 BitConverter.TryWriteBytes(buf.AsSpan(24), 1u);            // fm_extent_count
-                if (IoctlBuffer((int)h.DangerousGetHandle(), FsIocFiemap, buf) != 0 || BitConverter.ToUInt32(buf, 20) == 0)
+                if (IoctlBuffer(h, FsIocFiemap, buf) != 0 || BitConverter.ToUInt32(buf, 20) == 0)
                     return null;
                 var flags = BitConverter.ToUInt32(buf, 32 + 40);
                 if ((flags & 0x2000) == 0) // FIEMAP_EXTENT_SHARED: not shared, the file id says enough
