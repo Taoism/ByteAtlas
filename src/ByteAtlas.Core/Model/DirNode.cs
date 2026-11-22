@@ -24,6 +24,9 @@ public sealed class DirNode : Item
     public long OwnFilesSize { get; internal set; }
     public long OwnFilesAllocated { get; internal set; }
 
+    /// <summary>NTFS file reference (record number) of the folder, 0 when unknown: maps change-journal entries to folders.</summary>
+    public long Frn { get; internal set; }
+
     /// <summary>Set when the folder could not be read completely.</summary>
     public string? Error { get; internal set; }
 
@@ -133,6 +136,12 @@ public sealed class DirNode : Item
             else if (item is FileItem f)
                 _files.Remove(f);
         }
+    }
+
+    internal void ClearFiles()
+    {
+        lock (_gate)
+            _files.Clear();
     }
 
     internal void ClearChildren()

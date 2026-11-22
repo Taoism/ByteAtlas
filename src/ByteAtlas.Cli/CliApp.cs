@@ -56,6 +56,7 @@ internal static class CliApp
             --ages FILE               write the age statistics
             --top-files N FILE        write the N largest files
             --verbose                 show where the scan time went
+            --cache DIR               keep the scan in DIR; next time load it and refresh only what changed
 
           byteatlas-cli compare <path-or-index> <older-index-or-path> [--export FILE] [--top N]
           byteatlas-cli search <path> [--template large|old|temp|duplicates|longpaths]
@@ -121,6 +122,7 @@ internal static class CliApp
         var topFiles = 100;
         var history = false;
         var verbose = false;
+        string? cacheDir = null;
         for (var i = 1; i < a.Length; i++)
         {
             string Next() => i + 1 < a.Length ? a[++i] : throw new ArgumentException($"{a[i]} needs a value");
@@ -161,6 +163,9 @@ internal static class CliApp
                 case "--history":
                     history = true;
                     break;
+                case "--cache":
+                    cacheDir = Next();
+                    break;
                 case "--verbose" or "-v":
                     verbose = true;
                     break;
@@ -181,10 +186,28 @@ internal static class CliApp
                     return Fail("unknown option " + a[i]);
             }
         }
-        var s = new ScanSession(a[0], opt);
         var sw = Stopwatch.StartNew();
-        await Scanner.ScanAsync(s, CancellationToken.None);
+        ScanSession? s = null;
+        if (cacheDir != null && ScanCache.Load(cacheDir, a[0], opt) is { } cached)
+        {
+            if (verbose)
+                Console.WriteLine($"cache loaded in {sw.Elapsed.TotalSeconds:N1} s");
+            s = cached;
+            await Scanner.RefreshChangesAsync(s, CancellationToken.None);
+        }
+        if (s == null)
+        {
+            s = new ScanSession(a[0], opt);
+            await Scanner.ScanAsync(s, CancellationToken.None);
+        }
         sw.Stop();
+        if (cacheDir != null && s.State == ScanState.Done)
+        {
+            var cw = Stopwatch.StartNew();
+            ScanCache.Save(s, cacheDir);
+            if (verbose)
+                Console.WriteLine($"cache saved in {cw.Elapsed.TotalSeconds:N1} s ({SizeFormat.Format(new FileInfo(ScanCache.FileFor(cacheDir, a[0])).Length)})");
+        }
         var r = s.Root;
         Console.WriteLine($"{r.FullPath}: {SizeFormat.Format(r.Size, exp.Unit)} ({SizeFormat.Format(r.Allocated, exp.Unit)} allocated), {SizeFormat.Count(r.FileCount)} files, {SizeFormat.Count(r.FolderCount)} folders");
         Console.WriteLine($"{s.MethodUsed}, {sw.Elapsed.TotalSeconds:N1} s, {s.Errors.Count} errors, {s.State}");

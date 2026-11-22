@@ -114,6 +114,9 @@ public sealed class AppSettings
     public static AppSettings Current { get; private set; } = new();
     public string LastTab { get; set; } = "Chart";
     public bool PreviewPane { get; set; }
+
+    /// <summary>Keep the last scan of each path: shown at once on the next start, then refreshed.</summary>
+    public bool CacheScans { get; set; } = true;
     public bool DetailsThumbnails { get; set; }
 
     /// <summary>Extra Details columns: size of a file type / group / owner / age interval per folder.</summary>
@@ -145,6 +148,9 @@ public sealed class AppSettings
     public FileGroups FileGroupSet => new() { Groups = FileGroups };
 
     public static string Folder => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ByteAtlas");
+
+    /// <summary>Scan cache folder.</summary>
+    public static string CacheFolder => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ByteAtlas", "cache");
 
     private static string FilePath => Path.Combine(Folder, "settings.json");
 

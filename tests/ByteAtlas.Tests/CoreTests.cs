@@ -510,3 +510,62 @@ public class WindowsFeatureTests
         Assert.Equal(16, Statistics.TopFiles(g.Root, 100).Count);
     }
 }
+
+public class RefreshTests
+{
+    [Fact]
+    public void JournalRefreshMatchesFullScan()
+    {
+        if (!OperatingSystem.IsWindows() || !ByteAtlas.Scanning.MftScanner.CanScan(Path.GetTempPath(), out _))
+            return;
+        using var t = new TempTree();
+        var s = t.Scan(new ScanOptions { Method = ScanMethod.Mft, CollectOwners = false });
+        Assert.NotNull(s.Usn);
+        // changes: a new file, a deleted file, a new folder with files, a removed folder, a grown file
+        t.Write(@"sub\new.bin", 4321);
+        File.Delete(Path.Combine(t.Root, "a.txt"));
+        t.Write(@"fresh\one.dat", 1000);
+        t.Write(@"fresh\deep\two.dat", 2000);
+        Directory.Delete(Path.Combine(t.Root, "empty"));
+        t.Write(@"other\notdup.dat", 50000, seed: 9);
+        Assert.True(Scanner.TryJournalRefresh(s, CancellationToken.None));
+        Assert.StartsWith("change journal", s.Timings);
+        var full = t.Scan(new ScanOptions { Method = ScanMethod.FileSystem, CollectOwners = false });
+        Assert.Equal(full.Root.Size, s.Root.Size);
+        Assert.Equal(full.Root.FileCount, s.Root.FileCount);
+        Assert.Equal(full.Root.FolderCount, s.Root.FolderCount);
+        Assert.NotNull(s.Root.FindRelative(@"fresh\deep"));
+        Assert.Null(s.Root.FindRelative("empty"));
+        Assert.True(s.Root.FindRelative(@"fresh\deep")!.Frn > 0, "new folders get their reference for the next refresh");
+        // and once more on top
+        t.Write(@"fresh\deep\three.dat", 3000);
+        Assert.True(Scanner.TryJournalRefresh(s, CancellationToken.None));
+        Assert.Equal(full.Root.Size + 3000, s.Root.Size);
+    }
+
+    [Fact]
+    public void CacheRoundTrip()
+    {
+        using var t = new TempTree();
+        var s = t.Scan();
+        s.Title = "cached";
+        var dir = Path.Combine(t.Root, "..", "cache-" + Guid.NewGuid().ToString("N")[..6]);
+        try
+        {
+            ScanCache.Save(s, dir);
+            var c = ScanCache.Load(dir, t.Root, new ScanOptions())!;
+            Assert.Equal(s.Root.Size, c.Root.Size);
+            Assert.Equal(s.Root.Allocated, c.Root.Allocated);
+            Assert.Equal(s.Root.FileCount, c.Root.FileCount);
+            Assert.Equal(s.Root.FolderCount, c.Root.FolderCount);
+            Assert.Equal(t.Root, c.Root.FullPath);
+            Assert.Equal("cached", c.Title);
+            Assert.EndsWith("(cached)", c.MethodUsed);
+            Assert.Null(ScanCache.Load(dir, t.Root + "x", new ScanOptions()));
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+}

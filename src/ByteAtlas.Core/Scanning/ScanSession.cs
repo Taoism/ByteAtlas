@@ -51,6 +51,22 @@ public sealed class OwnerTable
                 return _names.Count;
         }
     }
+
+    /// <summary>Replaces the table with another one (ids stay those of <paramref name="other"/>).</summary>
+    internal void CopyFrom(OwnerTable other)
+    {
+        lock (_gate)
+        {
+            _ids.Clear();
+            _names.Clear();
+            for (var i = 0; i < other.Count; i++)
+            {
+                var n = other.Name(i);
+                _names.Add(n);
+                _ids[n] = i;
+            }
+        }
+    }
 }
 
 /// <summary>One scan in the window: its root, state, progress and errors.</summary>
@@ -89,6 +105,9 @@ public sealed class ScanSession
 
     public string CurrentPath { get; internal set; } = "";
 
+    /// <summary>How far the scan is, 0..1, when the scanner can tell (master file table); -1 otherwise.</summary>
+    public double Fraction { get; internal set; } = -1;
+
     /// <summary>Where the scan time went (diagnostics, shown by the CLI with --verbose).</summary>
     public string Timings { get; internal set; } = "";
 
@@ -99,6 +118,37 @@ public sealed class ScanSession
     public long VolumeFree { get; internal set; }
     public int ClusterSize { get; internal set; } = 4096;
     public string FileSystem { get; internal set; } = "";
+
+    /// <summary>A background scan replacing this one (progress is read from it); null otherwise.</summary>
+    public ScanSession? Progress { get; internal set; }
+
+    /// <summary>Takes the result of a background scan of the same path.</summary>
+    internal void TakeOver(ScanSession fresh)
+    {
+        Owners.CopyFrom(fresh.Owners);
+        Root = fresh.Root;
+        Usn = fresh.Usn;
+        MethodUsed = fresh.MethodUsed;
+        Timings = fresh.Timings;
+        VolumeTotal = fresh.VolumeTotal;
+        VolumeFree = fresh.VolumeFree;
+        ClusterSize = fresh.ClusterSize;
+        FileSystem = fresh.FileSystem;
+        ScanDate = fresh.ScanDate;
+        Started = fresh.Started;
+        Finished = fresh.Finished;
+        _filesDone = fresh._filesDone;
+        _foldersDone = fresh._foldersDone;
+        while (Errors.TryDequeue(out _))
+        {
+        }
+        foreach (var e in fresh.Errors)
+            Errors.Enqueue(e);
+        State = fresh.State;
+    }
+
+    /// <summary>Change-journal position when the drive was read (NTFS): lets a refresh read only what changed since.</summary>
+    public Native.UsnPosition? Usn { get; internal set; }
 
     /// <summary>Set when the scan was loaded from an index file.</summary>
     public string? IndexFile { get; internal set; }

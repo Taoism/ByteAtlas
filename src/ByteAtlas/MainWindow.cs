@@ -31,6 +31,7 @@ public sealed partial class MainWindow : Window
     private readonly Border _filterBar;
     private readonly TextBlock _filterText = new() { VerticalAlignment = VerticalAlignment.Center };
     private readonly DispatcherTimer _timer;
+    private readonly ProgressPanel _progressPanel = new();
     private readonly HistoryStore _history;
     private readonly Grid _body;
     private readonly string[] _args;
@@ -132,6 +133,25 @@ public sealed partial class MainWindow : Window
         dock.Children.Add(_filterBar);
         DockPanel.SetDock(_statusBar, Dock.Bottom);
         dock.Children.Add(_statusBar);
+        _progressPanel.StopRequested += (_, s) =>
+        {
+            if (_running.TryGetValue(s, out var cts))
+            {
+                s.Resume();
+                (s.Progress)?.Resume();
+                cts.Cancel();
+            }
+        };
+        _progressPanel.PauseRequested += (_, s) =>
+        {
+            var p = s.Progress ?? s;
+            if (p.State == ScanState.Paused)
+                p.Resume();
+            else
+                p.Pause();
+        };
+        DockPanel.SetDock(_progressPanel, Dock.Bottom);
+        dock.Children.Add(_progressPanel);
         dock.Children.Add(_body);
         Content = dock;
 

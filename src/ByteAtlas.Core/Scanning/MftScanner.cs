@@ -84,6 +84,7 @@ public sealed class MftScanner
     {
         var watch = Stopwatch.StartNew();
         var vol = VolumeInfo.Get(_s.Path);
+        _s.Usn = UsnJournal.Query(vol.Root);
         using var h = OpenVolume(vol.Root);
         if (h.IsInvalid)
             throw new UnauthorizedAccessException("Cannot open the volume (administrator rights needed).");
@@ -169,8 +170,8 @@ public sealed class MftScanner
                 for (var k = 0; k < count; k++)
                     ParseRecord(span.Slice(k * _recordSize, _recordSize), piece.FirstIndex + k, recs, extensions);
                 var d = Interlocked.Add(ref done, count);
-                _s._foldersDone = d;
-                _s.CurrentPath = $"Reading master file table: {d * 100 / Math.Max(1, total)} %";
+                _s.Fraction = 0.7 * d / Math.Max(1, total);
+                _s.CurrentPath = $"Reading master file table: {SizeFormat.Count(d)} of {SizeFormat.Count(total)} records";
                 return local;
             },
             local =>
@@ -468,7 +469,7 @@ public sealed class MftScanner
     {
         var n = recs.Length;
         // built detached from the session: the UI only sees the finished tree
-        var root = new DirNode(vol.Root, null) { Pending = false };
+        var root = new DirNode(vol.Root, null) { Pending = false, Frn = RootRecord };
         var dirs = new DirNode?[n];
         dirs[RootRecord] = root;
         if (RootRecord < n)
@@ -503,7 +504,7 @@ public sealed class MftScanner
             for (var c = firstChild[p]; c >= 0; c = nextSibling[c])
             {
                 ref var r = ref recs[c];
-                var d = new DirNode(r.Name!, parent) { Attributes = (FileAttributes)r.Attr | FileAttributes.Directory, Pending = false };
+                var d = new DirNode(r.Name!, parent) { Attributes = (FileAttributes)r.Attr | FileAttributes.Directory, Pending = false, Frn = c };
                 d.SetOwnDates(r.Created, r.Modified, r.Accessed);
                 parent.DirList.Add(d);
                 dirs[c] = d;
@@ -536,6 +537,7 @@ public sealed class MftScanner
             {
                 ct.ThrowIfCancellationRequested();
                 _s._filesDone = files;
+                _s.Fraction = 0.7 + 0.25 * i / n;
                 _s.CurrentPath = $"Building tree: {SizeFormat.Count(files)} files";
             }
         }
@@ -592,7 +594,7 @@ public sealed class MftScanner
         if (rel.Length > 0)
         {
             var sub = root.FindRelative(rel) ?? throw new DirectoryNotFoundException(_s.Path);
-            result = new DirNode(_s.Root.Name, null) { Attributes = sub.Attributes, OwnerId = sub.OwnerId, Pending = false };
+            result = new DirNode(_s.Root.Name, null) { Attributes = sub.Attributes, OwnerId = sub.OwnerId, Pending = false, Frn = sub.Frn };
             result.SetOwnDates(sub.CreatedTicks, sub._ownModified, sub._ownAccessed);
             foreach (var c in sub.DirList)
             {

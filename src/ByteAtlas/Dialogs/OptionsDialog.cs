@@ -250,6 +250,9 @@ public sealed class OptionsDialog : DialogWindow
             Check("Folder dates from the files inside only", o.FolderDateFromFilesOnly, v => o.FolderDateFromFilesOnly = v),
             Check("Count Windows compact compression (XPRESS / LZX) on the folder walk (slower)", o.DetectCompactCompression, v => o.DetectCompactCompression = v,
                 "Windows hides compact compression from the normal file attributes, so the folder walk has to ask every file. The master file table always knows."),
+            H("Cache"),
+            Check("Keep the last scan of each path: show it at once on the next start, then refresh what changed", _s.CacheScans, v => _s.CacheScans = v,
+                "NTFS drives read from the master file table refresh through the change journal (about a second)."),
             H("Statistics"),
             Check("Statistics on file owners (slower on the folder walk)", o.CollectOwners, v => o.CollectOwners = v),
             Label("File type and age statistics are always available; they are computed for the selected folder when you open their tab.", true));

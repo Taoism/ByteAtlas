@@ -3,6 +3,7 @@ using Avalonia.Threading;
 using ByteAtlas.Controls;
 using ByteAtlas.Model;
 using ByteAtlas.Scanning;
+using ByteAtlas.Storage;
 
 namespace ByteAtlas;
 
@@ -76,29 +77,72 @@ public sealed partial class MainWindow
             Rescan(existing);
             return;
         }
-        var session = new ScanSession(path, _settings.Scan.Clone());
+        _settings.AddRecent(ScanSession.NormalizeRoot(path));
+        RefreshRecentMenu();
+        _ = StartScanAsync(path);
+    }
+
+    /// <summary>Shows the cached scan of the path at once (when there is one) and refreshes it in the background.</summary>
+    private async Task StartScanAsync(string path)
+    {
+        ScanSession? cached = null;
+        if (_settings.CacheScans)
+        {
+            SetStatus("Loading the last scan of " + path + "…");
+            var options = _settings.Scan.Clone();
+            cached = await Task.Run(() => ScanCache.Load(AppSettings.CacheFolder, path, options), CancellationToken.None);
+        }
+        var session = cached ?? new ScanSession(path, _settings.Scan.Clone());
         _tree.AddScan(session);
         UpdateGroup();
         _tree.Rebuild();
         _pathBox.Text = session.Path;
-        _settings.AddRecent(session.Path);
-        RefreshRecentMenu();
-        Run(session, Scanner.ScanAsync);
+        if (cached != null)
+        {
+            UpdateViews(force: true);
+            Run(session, (s, ct) => Scanner.RefreshChangesAsync(s, ct, keepVisible: true));
+        }
+        else
+            Run(session, Scanner.ScanAsync);
     }
+
+    /// <summary>Saves the scan for the next start (in the background, one save per scan at a time).</summary>
+    private void SaveCache(ScanSession s)
+    {
+        if (!_settings.CacheScans || s.IndexFile != null || s.IsGroup || s.State != ScanState.Done || !_cacheSaving.TryAdd(s, 0))
+            return;
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                ScanCache.Save(s, AppSettings.CacheFolder);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidOperationException)
+            {
+                // the cache is a convenience
+            }
+            finally
+            {
+                _cacheSaving.TryRemove(s, out _);
+            }
+        }, CancellationToken.None);
+    }
+
+    private readonly ConcurrentDictionary<ScanSession, byte> _cacheSaving = new();
 
     private void Rescan(ScanSession s)
     {
         if (_running.ContainsKey(s))
             return;
         Analysis.Comparison.Clear(s);
-        Run(s, (sess, ct) => Scanner.RefreshAsync(sess, sess.Root, true, ct));
+        // the change journal when the drive was read from the master file table, else a full scan
+        Run(s, (sess, ct) => Scanner.RefreshChangesAsync(sess, ct));
     }
 
     private void Run(ScanSession s, Func<ScanSession, CancellationToken, Task> work)
     {
         var cts = new CancellationTokenSource();
         _running[s] = cts;
-        _progress.IsVisible = true;
         var root = s.Root;
         _ = Task.Run(async () =>
         {
@@ -125,7 +169,7 @@ public sealed partial class MainWindow
             _tree.RootReplaced(s);
         UpdateGroup();
         _tree.Rebuild();
-        _progress.IsVisible = !_running.IsEmpty;
+
         if (s.State == ScanState.Done)
         {
             try
@@ -140,6 +184,7 @@ public sealed partial class MainWindow
         UpdateViews(force: true);
         _drives.Refresh();
         SetStatus(ScanSummary(s));
+        SaveCache(s);
         UpdateWatchers();
         if (_settings.ShowErrorsAfterScan && !s.Errors.IsEmpty)
             _ = ShowErrorsAsync();
@@ -175,6 +220,7 @@ public sealed partial class MainWindow
                 UpdateViews(force: false, live: true);
             }
         }
+        _progressPanel.Update(_running.Keys.ToList(), _settings);
         _statusRight.Text = _tree.Scans.Count == 0 ? "" : $"{_tree.Scans.Count} scan{(_tree.Scans.Count == 1 ? "" : "s")}" + (Shell.IsAdmin ? "  ·  Administrator" : "");
         if (!_changedFolders.IsEmpty && _running.IsEmpty)
             ApplyWatchedChanges();

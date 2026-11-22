@@ -97,6 +97,7 @@ public static class Scanner
         {
             s.Finished = DateTime.Now;
             s.CurrentPath = "";
+            s.Fraction = -1;
         }
     }
 
@@ -124,6 +125,154 @@ public static class Scanner
         foreach (var d in s.Root.AllFolders())
             d.Pending = false;
         s.Timings += (s.Timings.Length > 0 ? ", " : "") + $"totals + sort {w.Elapsed.TotalSeconds:N1} s";
+    }
+
+    /// <summary>
+    /// Refreshes a whole scan: through the NTFS change journal when the scan was read from the master file table
+    /// (only folders that changed are looked at again), else by scanning everything again.
+    /// </summary>
+    public static Task RefreshChangesAsync(ScanSession s, CancellationToken ct, bool keepVisible = false) =>
+        Task.Factory.StartNew(() =>
+        {
+            if (TryJournalRefresh(s, ct))
+                return;
+            if (!keepVisible)
+            {
+                s.Root.ClearChildren();
+                Scan(s, ct);
+                return;
+            }
+            // scan into a second session and swap when done: the old tree stays on screen meanwhile
+            var fresh = new ScanSession(s.Path, s.Options) { Title = s.Title };
+            s.Progress = fresh;
+            s.State = ScanState.Scanning;
+            try
+            {
+                Scan(fresh, ct);
+            }
+            finally
+            {
+                s.Progress = null;
+            }
+            if (fresh.State == ScanState.Done)
+                s.TakeOver(fresh);
+            else
+                s.State = ScanState.Done;
+        }, ct, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+
+    /// <summary>The change-journal refresh; false when it cannot be used (then scan normally).</summary>
+    public static bool TryJournalRefresh(ScanSession s, CancellationToken ct, int maxFolders = 20_000)
+    {
+        if (!OperatingSystem.IsWindows() || s.Usn is not { } from || s.IndexFile != null && s.Usn == null)
+            return false;
+        var root = Path.GetPathRoot(s.Root.FullPath);
+        if (string.IsNullOrEmpty(root))
+            return false;
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var prev = s.State;
+        s.State = ScanState.Scanning;
+        s.Started = DateTime.Now;
+        try
+        {
+            s.CurrentPath = "Reading the change journal";
+            var changes = Native.UsnJournal.ChangedFolders(root, from, maxFolders, ct);
+            if (changes == null)
+            {
+                s.State = prev;
+                return false;
+            }
+            var map = new Dictionary<long, DirNode>();
+            foreach (var d in s.Root.AllFolders())
+                if (d.Frn > 0)
+                    map.TryAdd(d.Frn, d);
+            var targets = changes.Value.Folders.Where(map.ContainsKey).Select(f => map[f]).OrderBy(d => d.Level).ToList();
+            var done = 0;
+            foreach (var t in targets)
+            {
+                ct.ThrowIfCancellationRequested();
+                if (!IsAttached(s.Root, t))
+                    continue; // removed by the refresh of a folder above
+                s.CurrentPath = t.FullPath;
+                Shallow(s, t, ct);
+                done++;
+            }
+            s.Usn = changes.Value.Now;
+            s.Root.Recalculate(s.Options.FolderDateFromFilesOnly);
+            s.Root.Sort(bySize: true);
+            s.ScanDate = DateTime.Now;
+            s.Timings = $"change journal: {changes.Value.Folders.Count} changed folders, {done} looked at again, {watch.Elapsed.TotalSeconds:N1} s";
+            s.State = ScanState.Done;
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            s.State = ScanState.Cancelled;
+            return true;
+        }
+        finally
+        {
+            s.Finished = DateTime.Now;
+            s.CurrentPath = "";
+        }
+    }
+
+    private static bool IsAttached(DirNode root, DirNode d)
+    {
+        for (DirNode? p = d; p != null; p = p.Parent)
+            if (ReferenceEquals(p, root))
+                return true;
+        return false;
+    }
+
+    /// <summary>
+    /// Looks at one folder again: its files, which sub folders are new (scanned fully) or gone. Sub folders that are
+    /// still there keep their contents.
+    /// </summary>
+    internal static void Shallow(ScanSession s, DirNode node, CancellationToken ct)
+    {
+        var path = node.FullPath;
+        if (!Directory.Exists(path))
+        {
+            node.Parent?.RemoveChild(node);
+            return;
+        }
+        node.ClearFiles();
+        RescanFilesOnly(s, node, path);
+        var existing = new Dictionary<string, DirNode>(StringComparer.OrdinalIgnoreCase);
+        foreach (var d in node.Dirs)
+            existing.TryAdd(d.Name, d);
+        var present = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            foreach (var di in new DirectoryInfo(path).EnumerateDirectories("*", new EnumerationOptions { AttributesToSkip = 0, IgnoreInaccessible = true }))
+            {
+                present.Add(di.Name);
+                if (existing.TryGetValue(di.Name, out var keep))
+                {
+                    keep.Attributes = di.Attributes;
+                    keep.SetOwnDates(di.CreationTimeUtc.Ticks, di.LastWriteTimeUtc.Ticks, di.LastAccessTimeUtc.Ticks);
+                    continue;
+                }
+                if (!s.Options.IncludeFolder(di.Name, di.FullName))
+                    continue;
+                var nd = new DirNode(di.Name, node) { Attributes = di.Attributes };
+                nd.SetOwnDates(di.CreationTimeUtc.Ticks, di.LastWriteTimeUtc.Ticks, di.LastAccessTimeUtc.Ticks);
+                node.AddDir(nd);
+                if ((di.Attributes & FileAttributes.ReparsePoint) == 0 || s.Options.FollowMountPoints)
+                    new FileSystemScanner(s).Run(nd, di.FullName, ct);
+                nd.Pending = false;
+                if (OperatingSystem.IsWindows())
+                    foreach (var d in nd.AllFolders())
+                        d.Frn = Native.UsnJournal.FolderReference(d.FullPath);
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            node.Error = e.Message;
+        }
+        foreach (var (name, d) in existing)
+            if (!present.Contains(name))
+                node.RemoveChild(d);
     }
 
     /// <summary>Scans a folder of an existing scan again (with or without its sub folders).</summary>
@@ -184,11 +333,14 @@ public static class Scanner
                     LinkCount = 1,
                 };
                 var alloc = fi.Length <= 0 ? 0 : (fi.Length + cluster - 1) / cluster * cluster;
-                if (OperatingSystem.IsWindows() && (fi.Attributes & (FileAttributes.Compressed | FileAttributes.SparseFile | FileAttributes.ReparsePoint)) != 0)
+                if (OperatingSystem.IsWindows())
                 {
+                    // one folder only: asking each file is cheap (also catches compact compression)
                     var c = Native.Win32.CompressedSize(fi.FullName);
                     if (c >= 0)
                         alloc = (c + cluster - 1) / cluster * cluster;
+                    if (s.Options.CollectOwners && Native.Win32.GetOwner(fi.FullName) is { } owner)
+                        f.OwnerId = s.Owners.GetId(owner);
                 }
                 f.SetSizes(fi.Length, alloc);
                 node.AddFile(f);

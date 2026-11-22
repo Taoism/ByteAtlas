@@ -264,6 +264,7 @@ public sealed partial class MainWindow
         DockPanel.SetDock(crumbs, Dock.Top);
         host.Children.Add(crumbs);
         var charts = new Panel();
+        _pie.IsVisible = _bars.IsVisible = false; // UpdateChart shows the chosen one
         charts.Children.Add(_pie);
         charts.Children.Add(_bars);
         charts.Children.Add(_treemap);
