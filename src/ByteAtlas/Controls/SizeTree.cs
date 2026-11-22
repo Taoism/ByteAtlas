@@ -35,6 +35,9 @@ public sealed class TreeRow
     public DirNode? FilesOf => Kind == RowKind.FilesGroup ? (DirNode)Item : null;
 
     public void Invalidate() => View?.InvalidateVisual();
+
+    /// <summary>Screen readers and UI automation see the name.</summary>
+    public override string ToString() => Kind == RowKind.FilesGroup ? "[Files]" : Item.Parent == null ? Scan.DisplayName : Item.Name;
 }
 
 /// <summary>The left pane: every scan as a root, folders with a size bar, sorted by size.</summary>
@@ -118,6 +121,20 @@ public sealed class SizeTree : UserControl
 
     public List<ScanSession> Scans { get; } = [];
 
+    private ScanSession? _group;
+
+    /// <summary>The virtual "All scans" root (null = scans listed side by side).</summary>
+    public ScanSession? Group
+    {
+        get => _group;
+        set
+        {
+            if (value != null && !ReferenceEquals(value, _group))
+                _expanded.Add(value.Root);
+            _group = value;
+        }
+    }
+
     /// <summary>Show size changes (after a comparison) instead of the size.</summary>
     public bool ShowChanges { get; set; }
 
@@ -177,6 +194,10 @@ public sealed class SizeTree : UserControl
     {
         for (var p = item.Parent; p != null; p = p.Parent)
             _expanded.Add(p);
+        if (item is FileItem { Parent: { } folder } && Settings.ListFilesInTree)
+            _expanded.Add(FilesKey(folder));
+        if (Group != null)
+            _expanded.Add(Group.Root);
         Rebuild();
         Select(item);
     }
@@ -233,8 +254,26 @@ public sealed class SizeTree : UserControl
     public void Rebuild()
     {
         var list = new List<TreeRow>(_rows.Count + 16);
-        foreach (var s in Scans)
-            Add(list, s, s.Root, RowKind.Folder, 0);
+        if (Group is { } g)
+        {
+            if (!_cache.TryGetValue(g.Root, out var row) || !ReferenceEquals(row.Scan, g))
+                _cache[g.Root] = row = new TreeRow { Scan = g, Item = g.Root, Kind = RowKind.Folder };
+            row.Level = 0;
+            row.Expandable = Scans.Count > 0;
+            row.Expanded = _expanded.Contains(g.Root);
+            list.Add(row);
+            if (row.Expanded)
+            {
+                IEnumerable<ScanSession> order = Settings.SortByName
+                    ? Scans.OrderBy(s => s.DisplayName, StringComparer.OrdinalIgnoreCase)
+                    : Scans.OrderByDescending(s => Value(s.Root));
+                foreach (var s in order)
+                    Add(list, s, s.Root, RowKind.Folder, 1);
+            }
+        }
+        else
+            foreach (var s in Scans)
+                Add(list, s, s.Root, RowKind.Folder, 0);
         Sync(list);
         UpdateHeader();
         foreach (var r in _rows)
@@ -369,7 +408,15 @@ public sealed class SizeTree : UserControl
             _ => r.Item.Parent,
         };
         if (parent == null)
+        {
+            // a scan below the "All scans" row: its share of the group
+            if (Group != null && r.Level == 1 && r.Kind == RowKind.Folder)
+            {
+                var g = Value(Group.Root);
+                return g <= 0 ? 0 : Math.Clamp(RowValue(r) / (double)g, 0, 1);
+            }
             return 1;
+        }
         double whole = Value(parent);
         if (r.Kind == RowKind.File)
             whole = FilesValue(parent);
@@ -546,7 +593,7 @@ public sealed class TreeRowView : Control
         var name = r.Kind switch
         {
             RowKind.FilesGroup => $"[{SizeFormat.Count(r.FilesOf!.OwnFileCount)} Files]",
-            RowKind.Folder when r.Level == 0 => r.Scan.DisplayName,
+            RowKind.Folder when r.Item.Parent == null => r.Scan.DisplayName,
             _ => item.Name,
         };
         if (r.Folder?.Error != null)

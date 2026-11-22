@@ -6,6 +6,7 @@ using ByteAtlas.Native;
 namespace ByteAtlas.Security;
 
 /// <summary>One access rule of a file or folder.</summary>
+[SupportedOSPlatform("windows")]
 public sealed record AccessEntry(string Identity, SecurityIdentifier? Sid, bool Allow, FileSystemRights Rights, bool Inherited, InheritanceFlags Inheritance, PropagationFlags Propagation)
 {
     public string Type => Allow ? "Allow" : "Deny";
@@ -29,6 +30,7 @@ public sealed record AccessEntry(string Identity, SecurityIdentifier? Sid, bool 
 }
 
 /// <summary>Permissions of a file or folder: owner, access rules, whether inheritance is on.</summary>
+[SupportedOSPlatform("windows")]
 public sealed record PermissionInfo(string Owner, List<AccessEntry> Entries, bool InheritanceProtected, string? Error)
 {
     public bool HasExplicit => Entries.Any(e => !e.Inherited);
@@ -165,7 +167,7 @@ public static class Permissions
         return sids;
     }
 
-    private static IEnumerable<SecurityIdentifier> GroupsOf(string account)
+    private static List<SecurityIdentifier> GroupsOf(string account)
     {
         var found = new List<SecurityIdentifier>();
         foreach (var ctx in new[] { System.DirectoryServices.AccountManagement.ContextType.Machine, System.DirectoryServices.AccountManagement.ContextType.Domain })

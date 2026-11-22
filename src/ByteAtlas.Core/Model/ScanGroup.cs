@@ -12,10 +12,20 @@ public static class ScanGroup
 
     public static ScanSession Build(IReadOnlyList<ScanSession> scans)
     {
-        var root = new DirNode(Name, null) { Pending = false };
+        var g = ScanSession.FromTree(Name, new DirNode(Name, null) { Pending = false });
+        g.IsGroup = true;
+        Refresh(g, scans);
+        return g;
+    }
+
+    /// <summary>Takes the current scans and totals into the group (keeps the group object, so selection stays).</summary>
+    public static void Refresh(ScanSession g, IReadOnlyList<ScanSession> scans)
+    {
+        var root = g.Root;
         long size = 0, alloc = 0, files = 0, folders = 0, total = 0, free = 0, mod = 0;
         var depth = 0;
         var volumes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        root.DirList.Clear();
         foreach (var s in scans)
         {
             var r = s.Root;
@@ -41,13 +51,11 @@ public static class ScanGroup
         root.ModifiedTicks = mod;
         root.MaxDepthBelow = depth;
         root.Sort(bySize: true, recursive: false);
-        var g = ScanSession.FromTree(Name, root);
         g.VolumeTotal = total;
         g.VolumeFree = free;
         g.MethodUsed = $"{scans.Count} scans";
         g.ScanDate = scans.Count == 0 ? DateTime.Now : scans.Min(s => s.ScanDate);
-        g.IsGroup = true;
         g.Members = [.. scans];
-        return g;
+        g.State = scans.Any(s => s.State is ScanState.Scanning or ScanState.Paused) ? ScanState.Scanning : ScanState.Done;
     }
 }

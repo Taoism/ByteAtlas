@@ -64,6 +64,7 @@ public abstract class ChartBase : Control
 
     public event EventHandler<object?>? ItemClicked;
     public event EventHandler<object?>? ItemDoubleClicked;
+    public event EventHandler<object?>? ItemRightClicked;
 
     protected FormattedText Text(string s, double size = 12, IBrush? brush = null, bool bold = false) =>
         new(s, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, bold ? Bold : Regular, size, brush ?? this.ThemeBrush("TextBrush", Brushes.White));
@@ -101,9 +102,16 @@ public abstract class ChartBase : Control
         InvalidateVisual();
     }
 
+    protected void RightClick(object? tag) => ItemRightClicked?.Invoke(this, tag);
+
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
         base.OnPointerPressed(e);
+        if (e.GetCurrentPoint(this).Properties.IsRightButtonPressed)
+        {
+            RightClick(HitTest(e.GetPosition(this)).Tag);
+            return;
+        }
         if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
             return;
         var (tag, _) = HitTest(e.GetPosition(this));
@@ -404,6 +412,19 @@ public sealed class TreemapChart : ChartBase
         }
     }
 
+    private Item? _highlight;
+
+    /// <summary>The item selected in the tree: drawn with an accent outline when it is on the map.</summary>
+    public Item? Highlight
+    {
+        get => _highlight;
+        set
+        {
+            _highlight = value;
+            InvalidateVisual();
+        }
+    }
+
     private const double HeaderH = 15;
     private const double MinTile = 3;
 
@@ -419,6 +440,22 @@ public sealed class TreemapChart : ChartBase
         }
         var edge = new Pen(this.ThemeBrush("AppBackgroundBrush", Brushes.Black), 1);
         Layout(ctx, _root, bounds, 0, edge);
+        if (_highlight != null && !ReferenceEquals(_highlight, _root))
+        {
+            var t = _tiles.FindLast(x => ReferenceEquals(x.Item, _highlight));
+            if (t.Item == null)
+            {
+                // inside a tile too small to draw: outline the deepest drawn folder holding it
+                for (var p = _highlight.Parent; p != null && t.Item == null; p = p.Parent)
+                    t = _tiles.FindLast(x => ReferenceEquals(x.Item, p));
+            }
+            if (t.Item != null && !ReferenceEquals(t.Item, _root))
+            {
+                var accent = this.ThemeBrush("AccentBrush", Brushes.DodgerBlue);
+                ctx.DrawRectangle(null, new Pen(Brushes.Black, 4), t.Rect.Deflate(1));
+                ctx.DrawRectangle(null, new Pen(accent, 2.5), t.Rect.Deflate(1));
+            }
+        }
         if (Hover is Item hi)
         {
             var t = _tiles.FindLast(x => ReferenceEquals(x.Item, hi));

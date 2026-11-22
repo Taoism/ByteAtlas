@@ -43,6 +43,11 @@ public sealed class SearchWindow : Window
     private readonly CheckBox _dupDate = new() { Content = "Same date" };
     private readonly ComboBox _dupHash = new() { ItemsSource = new[] { "Size only (no content check)", "MD5 checksum", "SHA-256 checksum" }, SelectedIndex = 1 };
     private readonly StackPanel _dupPanel;
+    private readonly TextBox _permAccount = new() { PlaceholderText = "DOMAIN\\user, user or group" };
+    private readonly ComboBox _permLevel = new() { ItemsSource = new[] { "Any access", "Read", "Write", "Modify", "Full control" }, SelectedIndex = 0 };
+    private readonly CheckBox _permExplicit = new() { Content = "Only where granted explicitly (not inherited)", IsChecked = true };
+    private readonly CheckBox _permFolders = new() { Content = "Folders only (files usually inherit; faster)", IsChecked = true };
+    private readonly StackPanel _permPanel = new() { Spacing = 8 };
     private readonly DataGrid _grid;
     private readonly TextBlock _summary = new() { VerticalAlignment = VerticalAlignment.Center };
     private readonly Button _start;
@@ -61,6 +66,7 @@ public sealed class SearchWindow : Window
         ("Temporary files", SearchTemplate.TemporaryFiles),
         ("Duplicate files", SearchTemplate.Duplicates),
         ("Files with long paths", SearchTemplate.LongPaths),
+        ("Permissions of a user or group", SearchTemplate.Permissions),
         ("Custom search", SearchTemplate.Custom),
     ];
 
@@ -117,6 +123,13 @@ public sealed class SearchWindow : Window
         criteria.Children.Add(Row(Lbl("Max. results (0 = all)"), _max));
         criteria.Children.Add(H("Duplicates"));
         criteria.Children.Add(_dupPanel);
+        _permPanel.Children.Add(Field("Account:", _permAccount));
+        _permPanel.Children.Add(Field("At least:", _permLevel));
+        _permPanel.Children.Add(_permExplicit);
+        _permPanel.Children.Add(_permFolders);
+        _permPanel.Children.Add(new TextBlock { Text = "Group memberships count (local groups, and domain groups when the PC is in a domain).", Classes = { "muted" }, TextWrapping = Avalonia.Media.TextWrapping.Wrap });
+        criteria.Children.Add(H("Permissions"));
+        criteria.Children.Add(_permPanel);
 
         var left = new DockPanel();
         var tpl = new Border { Classes = { "panel" }, Child = _templates, Margin = new Thickness(0, 0, 0, 8) };
@@ -135,6 +148,7 @@ public sealed class SearchWindow : Window
         };
         _grid.ContextMenu = ResultMenu();
         Resizing.RememberColumns(_grid, "search");
+        DragOut.Attach(_grid, () => [.. _grid.SelectedItems.OfType<ItemRow>().Select(r => r.Path)]);
 
         var actions = new WrapPanel { Orientation = Orientation.Horizontal, ItemSpacing = 6, LineSpacing = 4 };
         actions.Children.Add(MainWindow.ToolButton("Delete…", () => DeleteAsync(true)));
@@ -215,6 +229,11 @@ public sealed class SearchWindow : Window
         _dupDate.IsChecked = c.DuplicatesSameDate;
         _dupHash.SelectedIndex = (int)c.DuplicatesHash;
         _dupPanel.IsEnabled = c.Template == SearchTemplate.Duplicates;
+        _permPanel.IsEnabled = c.Template == SearchTemplate.Permissions;
+        _permAccount.Text = c.PermissionAccount ?? "";
+        _permLevel.SelectedIndex = (int)c.PermissionLevel;
+        _permExplicit.IsChecked = c.PermissionExplicitOnly;
+        _permFolders.IsChecked = c.PermissionFoldersOnly;
     }
 
     private SearchCriteria Read()
@@ -234,6 +253,13 @@ public sealed class SearchWindow : Window
             DuplicatesSameDate = _dupDate.IsChecked == true,
             DuplicatesHash = (HashKind)Math.Max(0, _dupHash.SelectedIndex),
         };
+        if (_criteria.Template == SearchTemplate.Permissions)
+        {
+            c.PermissionAccount = string.IsNullOrWhiteSpace(_permAccount.Text) ? null : _permAccount.Text.Trim();
+            c.PermissionLevel = (AccessLevel)Math.Max(0, _permLevel.SelectedIndex);
+            c.PermissionExplicitOnly = _permExplicit.IsChecked == true;
+            c.PermissionFoldersOnly = _permFolders.IsChecked == true;
+        }
         if (!string.IsNullOrWhiteSpace(_include.Text))
             c.Include.Add(new FilterRule { Pattern = _include.Text.Trim(), Kind = kind, Exclude = false });
         if (!string.IsNullOrWhiteSpace(_exclude.Text))
@@ -311,13 +337,17 @@ public sealed class SearchWindow : Window
                     found = SearchEngine.FindDuplicates(found, c, progress, ct);
                 else if (c.SortBySizeDesc)
                     found.Sort((a, b) => b.Size.CompareTo(a.Size));
-                return found.Select(r => new ItemRow(r.Item, owners.GetValueOrDefault(r.Item), _settings, r.FullPath) { Group = r.Group, Hash = r.Hash ?? "" }).ToList();
+                return found.Select(r => new ItemRow(r.Item, owners.GetValueOrDefault(r.Item), _settings, r.FullPath) { Group = r.Group, Hash = r.Hash ?? "", Detail = r.Detail }).ToList();
             }, ct);
             ShowResults(results);
         }
         catch (OperationCanceledException)
         {
             _summary.Text = "Stopped.";
+        }
+        catch (ArgumentException e)
+        {
+            _summary.Text = e.Message;
         }
         finally
         {
@@ -333,7 +363,9 @@ public sealed class SearchWindow : Window
         _grid.Columns.Clear();
         var cols = _duplicates
             ? new[] { "Group", "Name", "Size", "Modified", "Folder", "Hash" }
-            : new[] { "Name", "Size", "Allocated", "Modified", "Accessed", "Owner", "PathLength", "Folder" };
+            : _criteria.Template == SearchTemplate.Permissions
+                ? new[] { "Name", "Detail", "Inherited", "Size", "Path" }
+                : new[] { "Name", "Size", "Allocated", "Modified", "Accessed", "Owner", "PathLength", "Folder" };
         foreach (var k in cols)
             _grid.Columns.Add(GridFactory.Column(GridFactory.ItemColumns[k]));
         _grid.ItemsSource = rows;

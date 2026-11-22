@@ -44,6 +44,20 @@ public sealed partial class MainWindow
     {
         List<string> Paths() => [.. items().Select(i => i.FullPath)];
         var m = new ContextMenu();
+        if (OperatingSystem.IsWindows())
+        {
+            // Shift + right click: the Windows Explorer menu straight away
+            m.Opening += (_, e) =>
+            {
+                if (OperatingSystem.IsWindows() && ShellMenu.ShiftDown && Paths() is { Count: > 0 } p)
+                {
+                    e.Cancel = true;
+                    ShowExplorerMenu(p);
+                }
+            };
+            m.Items.Add(Item("Explorer menu…", () => ShowExplorerMenu(Paths())));
+            m.Items.Add(new Separator());
+        }
         m.Items.Add(Item("Open", () =>
         {
             foreach (var p in Paths().Take(10))
@@ -80,8 +94,12 @@ public sealed partial class MainWindow
         m.Items.Add(Item("Bulk rename…", () => OpenRenamer(Paths())));
         m.Items.Add(Item("New folder…", () => NewFolderAsync(items().FirstOrDefault())));
         m.Items.Add(new Separator());
-        m.Items.Add(Item("NTFS compress", () => CompressItemsAsync(items(), true)));
-        m.Items.Add(Item("NTFS decompress", () => CompressItemsAsync(items(), false)));
+        m.Items.Add(Item("Permissions…", () =>
+        {
+            if (items().FirstOrDefault() is { } i && OperatingSystem.IsWindows())
+                _ = new PermissionsDialog(i.FullPath).ShowDialog(this);
+        }));
+        m.Items.Add(CompressMenu(items));
         m.Items.Add(Item("Filter by this extension", () =>
         {
             var exts = items().OfType<FileItem>().Select(f => f.Extension).Distinct().ToList();
@@ -94,6 +112,21 @@ public sealed partial class MainWindow
                 ApplyFilter(ViewFilter.ForOwners([i.OwnerId], s.Owners.Name(i.OwnerId)));
         }));
         return m;
+    }
+
+    private void ShowExplorerMenu(List<string> paths)
+    {
+        if (!OperatingSystem.IsWindows() || paths.Count == 0 || TryGetPlatformHandle()?.Handle is not { } hwnd)
+            return;
+        // after our own menu has closed
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            if (OperatingSystem.IsWindows())
+                ShellMenu.Show(hwnd, paths);
+            // the command may have deleted, renamed or added files: look again where it happened
+            if (SelectedScan is { IsGroup: false, IndexFile: null } s && SelectedFolder is { } d && !_running.ContainsKey(s))
+                Run(s, (sess, ct) => Scanner.RefreshAsync(sess, d, false, ct));
+        }, Avalonia.Threading.DispatcherPriority.Background);
     }
 
     private List<string> SelectedPaths()
@@ -164,15 +197,32 @@ public sealed partial class MainWindow
         }
     }
 
-    private Task CompressSelectedAsync(bool on) => CompressItemsAsync(SelectedItemsForAction(), on);
+    private MenuItem CompressMenu(Func<List<Item>> items)
+    {
+        var m = new MenuItem { Header = "Compress" };
+        foreach (var f in new[] { Native.CompressionFormat.Ntfs, Native.CompressionFormat.Xpress4K, Native.CompressionFormat.Xpress8K, Native.CompressionFormat.Xpress16K, Native.CompressionFormat.Lzx })
+        {
+            var format = f;
+            var label = format == Native.CompressionFormat.Ntfs ? "NTFS (LZNT1, stays compressed when written)" : Native.Compression.Name(format) + (format == Native.CompressionFormat.Lzx ? " (smallest, slowest)" : "");
+            m.Items.Add(Item(label, () => CompressItemsAsync(items(), format)));
+        }
+        m.Items.Add(new Separator());
+        m.Items.Add(Item("Uncompress", () => CompressItemsAsync(items(), Native.CompressionFormat.None)));
+        ToolTip.SetTip(m, "XPRESS and LZX (Windows compact compression) save more than NTFS compression; a file written to later is stored uncompressed again.");
+        return m;
+    }
 
-    private async Task CompressItemsAsync(List<Item> items, bool on)
+    private Task CompressSelectedAsync(Native.CompressionFormat format) => CompressItemsAsync(SelectedItemsForAction(), format);
+
+    private async Task CompressItemsAsync(List<Item> items, Native.CompressionFormat format)
     {
         if (items.Count == 0)
             return;
-        SetStatus(on ? "Compressing…" : "Decompressing…");
-        var r = await Task.Run(() => FileOperations.SetCompression([.. items.Select(i => i.FullPath)], on, CancellationToken.None), CancellationToken.None);
-        await ReportAsync(r, on ? "Compressed" : "Decompressed");
+        var on = format != Native.CompressionFormat.None;
+        SetStatus(on ? $"Compressing ({Native.Compression.Name(format)})…" : "Uncompressing…");
+        var progress = new Progress<string>(p => SetStatus((on ? "Compressing " : "Uncompressing ") + p));
+        var r = await Task.Run(() => FileOperations.Compress([.. items.Select(i => i.FullPath)], format, progress, CancellationToken.None), CancellationToken.None);
+        await ReportAsync(r, on ? "Compressed" : "Uncompressed");
         // sizes on disk changed
         var s = SelectedScan;
         if (s != null && items.FirstOrDefault() is { } first)
@@ -306,7 +356,7 @@ public sealed partial class MainWindow
 
     private async Task SaveIndexAsync()
     {
-        if (SelectedScan is not { } s)
+        if (RealScan() is not { } s)
             return;
         var name = MakeFileName(s.Title ?? s.Root.FullPath) + DateTime.Now.ToString("_yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture) + ".badb";
         var path = await SaveFileAsync("Save scan to index file", name, IndexTypes);
@@ -338,6 +388,8 @@ public sealed partial class MainWindow
         {
             var s = await Task.Run(() => IndexFile.Load(path), CancellationToken.None);
             _tree.AddScan(s);
+            UpdateGroup();
+            _tree.Rebuild();
             SetStatus(ScanSummary(s));
         }
         catch (Exception e) when (e is IOException or InvalidDataException or System.Xml.XmlException or Microsoft.Data.Sqlite.SqliteException or UnauthorizedAccessException)
@@ -348,7 +400,7 @@ public sealed partial class MainWindow
 
     private async Task CompareWithIndexAsync()
     {
-        if (SelectedScan is not { } s)
+        if (RealScan() is not { } s)
             return;
         var path = await OpenFileAsync("Compare with saved scan", IndexTypes);
         if (path == null)
@@ -366,7 +418,7 @@ public sealed partial class MainWindow
 
     private async Task CompareWithPathAsync()
     {
-        if (SelectedScan is not { } s)
+        if (RealScan() is not { } s)
             return;
         var p = await PickFolderAsync("Folder to compare with " + s.Path);
         if (p == null)
@@ -379,7 +431,7 @@ public sealed partial class MainWindow
 
     private async Task CompareWithSnapshotAsync()
     {
-        if (SelectedScan is not { } s || !OperatingSystem.IsWindows())
+        if (RealScan() is not { } s || !OperatingSystem.IsWindows())
             return;
         List<ShadowCopy> copies;
         try
@@ -412,7 +464,7 @@ public sealed partial class MainWindow
 
     private async Task CreateSnapshotAsync()
     {
-        if (SelectedScan is not { } s || !OperatingSystem.IsWindows())
+        if (RealScan() is not { } s || !OperatingSystem.IsWindows())
             return;
         if (!Shell.IsAdmin)
         {
@@ -610,7 +662,7 @@ public sealed partial class MainWindow
 
     private async Task ScheduleScanAsync()
     {
-        if (SelectedScan is not { } s || !OperatingSystem.IsWindows())
+        if (RealScan() is not { } s || !OperatingSystem.IsWindows())
             return;
         var dlg = new ScheduleDialog(s.Path, _settings);
         if (!await dlg.ShowDialog<bool>(this))

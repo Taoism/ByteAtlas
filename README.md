@@ -28,7 +28,12 @@ Open source (MIT), dark by default, written in C# (.NET 10 + Avalonia).
   wasted space, compression, hard links, streams, costs, size change, path length).
 - **Extensions** (or file groups), **Users** (owners), **Age of Files** (configurable intervals),
   **Top Files**, **History** (used space over time per drive / folder).
-- Filter the tree by extension, file group or owner.
+- Filter the tree by extension, file group or owner; **group scans** under one "All scans" row with totals.
+- **Preview pane** (pictures, text files, Explorer thumbnails for videos / PDFs / documents), **compare two files**
+  side by side, **thumbnail view** of a folder.
+- **Treemap navigation**: path bar to jump back up, click a tile to select it in the tree, double-click to zoom in,
+  right-click for its menu; the tree selection is outlined on the map.
+- Extra Details columns: the size of one **file type, file group, owner or age interval** in each folder.
 - Drive list with used / free space, extra paths, all shares of a server.
 
 **File search** — templates for large, old, temporary, duplicate (MD5 / SHA-256) and long-path files, or your own
@@ -44,7 +49,14 @@ choose columns, depth, files, units.
 with an index file, another path or a **Windows snapshot** (volume shadow copy; create snapshots too).
 The tree then shows the change per folder.
 
-**Windows integration** — Explorer context menu ("Analyze / Search with ByteAtlas"), properties dialog, open
+**Permissions** — owner, explicit / inherited access, a permissions column and dialog (with advanced rights), export,
+and a **search for folders a user or group can access** (group memberships count, local and domain).
+
+**Compression** — NTFS (LZNT1) and Windows **compact compression (XPRESS 4K / 8K / 16K, LZX)**: see each file's format
+and real size on disk, compress or uncompress files and folders.
+
+**Windows integration** — the real **Explorer right-click menu** (Shift + right click, or "Explorer menu…"), **drag
+files out** into Explorer, Explorer context menu ("Analyze / Search with ByteAtlas"), properties dialog, open
 command prompt here, NTFS compress / decompress, empty recycle bin, map network drive, start as administrator,
 **scheduled scans** (Task Scheduler running `byteatlas-cli`).
 

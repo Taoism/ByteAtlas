@@ -20,7 +20,6 @@ public enum CompressionFormat
 /// Windows compact compression (the Windows Overlay Filter: XPRESS 4K/8K/16K, LZX, as used by compact.exe /exe)
 /// and classic NTFS compression: read the format, compress, uncompress.
 /// </summary>
-[SupportedOSPlatform("windows")]
 public static partial class Compression
 {
     private const uint FSCTL_GET_EXTERNAL_BACKING = 0x90310;
@@ -63,11 +62,13 @@ public static partial class Compression
         _ => "",
     };
 
+    [SupportedOSPlatform("windows")]
     private static SafeFileHandle Open(string path, bool write) =>
         Win32.CreateFile(Win32.LongPath(path), write ? Win32.GENERIC_READ | Win32.GENERIC_WRITE : 0x80 /* FILE_READ_ATTRIBUTES */,
             Win32.FILE_SHARE_READ | (write ? 0 : Win32.FILE_SHARE_WRITE) | Win32.FILE_SHARE_DELETE, IntPtr.Zero, Win32.OPEN_EXISTING, Win32.FILE_FLAG_BACKUP_SEMANTICS, IntPtr.Zero);
 
     /// <summary>The compression of one file (None when it cannot be read).</summary>
+    [SupportedOSPlatform("windows")]
     public static CompressionFormat Get(string path, FileAttributes attributes)
     {
         if ((attributes & FileAttributes.Compressed) != 0)
@@ -90,6 +91,7 @@ public static partial class Compression
         };
     }
 
+    [SupportedOSPlatform("windows")]
     /// <summary>Compresses one file with a compact-compression algorithm (the file stays readable; writing to it uncompresses it).</summary>
     public static bool SetCompact(string path, CompressionFormat format, out string? error)
     {
@@ -120,6 +122,7 @@ public static partial class Compression
     }
 
     /// <summary>Removes compact compression from one file.</summary>
+    [SupportedOSPlatform("windows")]
     public static bool RemoveCompact(string path, out string? error)
     {
         error = null;

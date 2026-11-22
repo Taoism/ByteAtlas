@@ -41,6 +41,9 @@ public static class Scanner
             {
                 using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 budget.CancelAfter(QuickWalkBudget);
+                // small folders: asking each file for its real space on disk (compact compression) is cheap
+                var detect = s.Options.DetectCompactCompression;
+                s.Options.DetectCompactCompression = true;
                 try
                 {
                     new FileSystemScanner(s).Run(s.Root, path, budget.Token);
@@ -50,6 +53,10 @@ public static class Scanner
                 catch (OperationCanceledException) when (!ct.IsCancellationRequested)
                 {
                     Reset(s);
+                }
+                finally
+                {
+                    s.Options.DetectCompactCompression = detect;
                 }
             }
             else if (useMft && OperatingSystem.IsWindows())

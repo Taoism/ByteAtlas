@@ -7,6 +7,7 @@ using ByteAtlas.Controls;
 using ByteAtlas.Model;
 using ByteAtlas.Scanning;
 using ByteAtlas.Storage;
+using Avalonia.Controls.Primitives;
 using ByteAtlas.Views;
 
 namespace ByteAtlas;
@@ -163,7 +164,7 @@ public sealed partial class MainWindow
                 RunInBackground(() => _settings.GroupExtensions ? Statistics.ByGroup(d, _settings.FileGroupSet) : Statistics.ByExtension(d, _settings.FileGroupSet, _filter?.Predicate), rows => FillStats(_extGrid, _extChart, rows, "File types in " + d.Name));
                 break;
             case 3:
-                RunInBackground(() => Statistics.ByOwner(d, s.Owners), rows => FillStats(_userGrid, _userChart, rows, "Owners in " + d.Name));
+                RunInBackground(() => s.IsGroup && d.Parent == null ? Statistics.ByOwner(s.Members) : Statistics.ByOwner(d, s.Owners), rows => FillStats(_userGrid, _userChart, rows, "Owners in " + d.Name));
                 break;
             case 4:
                 RunInBackground(() => Statistics.ByAge(d, _settings.AgeIntervalSet, _settings.AgeBasis), rows => FillStats(_ageGrid, _ageChart, rows, $"Age of files ({_settings.AgeBasis.ToString().ToLowerInvariant()}) in {d.Name}", keepColors: true));
@@ -227,7 +228,18 @@ public sealed partial class MainWindow
         _bars.ItemDoubleClicked += (_, t) => ChartActivate(t);
         _pie.ItemClicked += (_, t) => ChartSelect(t);
         _bars.ItemClicked += (_, t) => ChartSelect(t);
-        _treemap.ItemClicked += (_, t) => ChartSelect(t);
+        // one click: select in the tree (the map stays); double click on a folder: zoom in; right click: its menu
+        _treemap.ItemClicked += (_, t) =>
+        {
+            ChartSelect(t);
+            if (t is Item i)
+            {
+                _keepTreemapRoot = true;
+                ShowInTree(i);
+                _keepTreemapRoot = false;
+                _treemap.Highlight = i;
+            }
+        };
         _treemap.ItemDoubleClicked += (_, t) =>
         {
             if (t is DirNode d)
@@ -235,12 +247,27 @@ public sealed partial class MainWindow
             else if (t is FileItem f)
                 Shell.Open(f.FullPath);
         };
+        _treemap.ItemRightClicked += (_, t) =>
+        {
+            if (t is Item i && i.Parent != null)
+                ItemContextMenu(() => [i]).Open(_treemap);
+        };
+        _pie.ItemRightClicked += (_, t) =>
+        {
+            if (t is DirNode { Parent: not null } i)
+                ItemContextMenu(() => [i]).Open(_pie);
+        };
         ApplyChartSettings();
 
-        var host = new Panel();
-        host.Children.Add(_pie);
-        host.Children.Add(_bars);
-        host.Children.Add(_treemap);
+        var host = new DockPanel();
+        var crumbs = new Border { Padding = new Thickness(0, 0, 0, 4), Child = _crumbs };
+        DockPanel.SetDock(crumbs, Dock.Top);
+        host.Children.Add(crumbs);
+        var charts = new Panel();
+        charts.Children.Add(_pie);
+        charts.Children.Add(_bars);
+        charts.Children.Add(_treemap);
+        host.Children.Add(charts);
 
         ComboBox Combo(string[] items, string selected, Action<string> set)
         {
@@ -310,15 +337,46 @@ public sealed partial class MainWindow
         _treemap.InvalidateVisual();
     }
 
+    private readonly WrapPanel _crumbs = new() { Orientation = Orientation.Horizontal };
+    private bool _keepTreemapRoot;
+
+    /// <summary>The path of the shown folder as buttons: click one to go there.</summary>
+    private void UpdateCrumbs(DirNode d)
+    {
+        _crumbs.Children.Clear();
+        var chain = new List<DirNode>();
+        for (DirNode? p = d; p != null; p = p.Parent)
+            chain.Add(p);
+        chain.Reverse();
+        if (_group != null && chain.Count > 0 && _tree.Scans.Any(x => ReferenceEquals(x.Root, chain[0])))
+            chain.Insert(0, _group.Root);
+        for (var i = 0; i < chain.Count; i++)
+        {
+            var node = chain[i];
+            if (i > 0)
+                _crumbs.Children.Add(new TextBlock { Text = "›", Classes = { "muted" }, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(2, 0) });
+            var label = node.Parent == null ? (ReferenceEquals(node, _group?.Root) ? ScanGroup.Name : node.FullPath) : node.Name;
+            var b = new Button { Content = label, Classes = { "tool" }, Padding = new Thickness(6, 2), MinHeight = 24 };
+            if (i == chain.Count - 1)
+                b.FontWeight = FontWeight.SemiBold;
+            ToolTip.SetTip(b, $"{_settings.Size(node.Size)}  ·  {SizeFormat.Count(node.FileCount)} files");
+            b.Click += (_, _) => ShowInTree(node);
+            _crumbs.Children.Add(b);
+        }
+    }
+
     private void UpdateChart(ScanSession s, DirNode d)
     {
+        UpdateCrumbs(_keepTreemapRoot && _treemap.Root != null ? _treemap.Root : d);
         var type = _chartSource == "Folders" ? _settings.ChartType : _settings.ChartType == "Treemap" ? "Pie" : _settings.ChartType;
         _treemap.IsVisible = type == "Treemap";
         _pie.IsVisible = type == "Pie";
         _bars.IsVisible = type == "Bar";
         if (type == "Treemap")
         {
-            _treemap.Root = d;
+            if (!_keepTreemapRoot || _treemap.Root == null)
+                _treemap.Root = d;
+            _treemap.Highlight = _tree.Selected?.Item;
             _treemap.InvalidateVisual();
             return;
         }
@@ -380,15 +438,63 @@ public sealed partial class MainWindow
 
     // ---------------- details ----------------
 
+    private PreviewPane? _preview;
+    private ThumbnailView? _thumbs;
+    private Grid? _detailsHost;
+
     private Control DetailsTab()
     {
+        _preview = new PreviewPane(_settings);
+        _thumbs = new ThumbnailView(_settings);
+        _thumbs.Activated += (_, i) =>
+        {
+            if (i is DirNode d)
+                ShowInTree(d);
+            else
+                Shell.Open(i.FullPath);
+        };
+        _thumbs.SelectionChanged += (_, i) => _preview.Show(i);
+        _thumbs.ContextMenu = ItemContextMenu(() => [.. _thumbs.SelectedItems]);
+        DragOut.Attach(_thumbs.List, () => [.. _thumbs.SelectedItems.Select(i => i.FullPath)]);
+        _details.SelectionChanged += (_, _) => _preview.Show((_details.SelectedItem as ItemRow)?.Item);
+
+        // list or thumbnails | splitter | preview pane
+        _detailsHost = new Grid { ColumnDefinitions = new ColumnDefinitions("*,6,380") };
+        _detailsHost.Children.Add(_details);
+        _detailsHost.Children.Add(_thumbs);
+        var split = Resizing.Split(_detailsHost, 1, 2, columns: true, "details.preview");
+        Grid.SetColumn(_preview, 2);
+        _detailsHost.Children.Add(_preview);
+
         var bar = new WrapPanel { Orientation = Orientation.Horizontal, ItemSpacing = 6 };
-        bar.Children.Add(ToolButton("Columns…", ChooseDetailColumns));
+        var thumbs = new ToggleButton { Content = Icons.Content(Icons.Image, "Thumbnails"), IsChecked = _settings.DetailsThumbnails, Classes = { "tool" } };
+        var preview = new ToggleButton { Content = Icons.Content(Icons.Eye, "Preview"), IsChecked = _settings.PreviewPane, Classes = { "tool" } };
+        void Apply()
+        {
+            _settings.DetailsThumbnails = thumbs.IsChecked == true;
+            _settings.PreviewPane = preview.IsChecked == true;
+            _details.IsVisible = !_settings.DetailsThumbnails;
+            _thumbs.IsVisible = _settings.DetailsThumbnails;
+            _preview.IsVisible = split.IsVisible = _settings.PreviewPane;
+            _detailsHost.ColumnDefinitions[2].MaxWidth = _settings.PreviewPane ? double.PositiveInfinity : 0;
+            UpdateViews(true);
+        }
+        thumbs.IsCheckedChanged += (_, _) => Apply();
+        preview.IsCheckedChanged += (_, _) => Apply();
+        ToolTip.SetTip(thumbs, "Large Explorer thumbnails instead of the list");
+        ToolTip.SetTip(preview, "Preview pane: pictures, text files, thumbnails; compare two files side by side");
+        bar.Children.Add(thumbs);
+        bar.Children.Add(preview);
+        bar.Children.Add(IconButton(Icons.Columns, "Columns…", ChooseDetailColumns));
         bar.Children.Add(ToolButton("Export list…", () => ExportListAsync(_details, "Details")));
         bar.Children.Add(ToolButton("Select all", () => _details.SelectAll()));
         bar.Children.Add(ToolButton("Invert selection", () => InvertSelection(_details)));
-        bar.Children.Add(ToolButton("Go up", GoUp));
-        return WithOverview(_details, bar);
+        bar.Children.Add(IconButton(Icons.Up, "Go up", GoUp));
+        _details.IsVisible = !_settings.DetailsThumbnails;
+        _thumbs.IsVisible = _settings.DetailsThumbnails;
+        _preview.IsVisible = split.IsVisible = _settings.PreviewPane;
+        _detailsHost.ColumnDefinitions[2].MaxWidth = _settings.PreviewPane ? double.PositiveInfinity : 0;
+        return WithOverview(_detailsHost, bar);
     }
 
     private DataGrid CreateDetailsGrid()
@@ -406,6 +512,7 @@ public sealed partial class MainWindow
         };
         g.ContextMenu = ItemContextMenu(() => g.SelectedItems.OfType<ItemRow>().Select(r => r.Item).ToList());
         Resizing.RememberColumns(g, "details");
+        DragOut.Attach(g, () => [.. g.SelectedItems.OfType<ItemRow>().Select(r => r.Path)]);
         return g;
     }
 
@@ -414,13 +521,21 @@ public sealed partial class MainWindow
         IEnumerable<Item> items = _tree.Selected?.Kind == RowKind.FilesGroup ? d.Files : d.Children;
         if (_filter != null)
             items = items.Where(i => i is DirNode dd ? dd.FilteredFiles > 0 : _filter.Predicate((FileItem)i));
-        _details.ItemsSource = items.OrderByDescending(i => i.Size).Select(i => new ItemRow(i, s, _settings)).ToList();
+        var sorted = items.OrderByDescending(i => i.Size).ToList();
+        if (_settings.DetailsThumbnails)
+            _thumbs?.Show(sorted);
+        else
+        {
+            var rows = sorted.Select(i => new ItemRow(i, s, _settings)).ToList();
+            FillExtraColumns(rows);
+            _details.ItemsSource = rows;
+        }
     }
 
     private void ChooseDetailColumns()
     {
         var menu = new ContextMenu();
-        foreach (var (key, col) in GridFactory.ItemColumns.Where(k => k.Key is not ("Group" or "Hash")))
+        foreach (var (key, col) in GridFactory.ItemColumns.Where(k => k.Key is not ("Group" or "Hash" or "Detail")))
         {
             if (key == "Name")
                 continue;
@@ -434,6 +549,19 @@ public sealed partial class MainWindow
                 RebuildDetailColumns();
             }));
         }
+        if (_settings.DetailExtraColumns.Count > 0)
+        {
+            menu.Items.Add(new Separator());
+            foreach (var c in _settings.DetailExtraColumns.ToList())
+            {
+                var col = c;
+                menu.Items.Add(Item($"Remove \"{c.Label}\"", () =>
+                {
+                    _settings.DetailExtraColumns.Remove(col);
+                    RebuildDetailColumns();
+                }));
+            }
+        }
         menu.Open(_details);
     }
 
@@ -442,6 +570,7 @@ public sealed partial class MainWindow
         _details.Columns.Clear();
         foreach (var c in _settings.DetailColumns.Where(GridFactory.ItemColumns.ContainsKey))
             _details.Columns.Add(GridFactory.Column(GridFactory.ItemColumns[c]));
+        AddExtraColumns();
         UpdateViews(true);
     }
 
@@ -493,6 +622,11 @@ public sealed partial class MainWindow
                 OpenSearchFor(c => c.Include.Add(new FilterRule { Pattern = string.Join(';', keys.Select(k => k.Length == 0 ? "*." : "*." + k)), Exclude = false }));
         }));
         bar.Children.Add(ToolButton("Copy file list", () => CopyFilesWhereAsync(f => _extGrid.SelectedItems.OfType<StatItem>().Any(i => _settings.GroupExtensions ? _settings.FileGroupSet.GroupOf(f.Extension) == i.Row.Key : i.Row.Key == f.Extension))));
+        bar.Children.Add(ToolButton("Add column to Details", () =>
+        {
+            foreach (var i in _extGrid.SelectedItems.OfType<StatItem>())
+                AddExtraColumn(_settings.GroupExtensions ? "group" : "ext", i.Row.Key, _settings.GroupExtensions ? i.Row.Key : (i.Row.Key.Length == 0 ? "(no ext.)" : "." + i.Row.Key));
+        }));
         bar.Children.Add(ToolButton("Export list…", () => ExportStatsAsync(_extGrid, "Extensions")));
         _extChart.ItemDoubleClicked += (_, t) =>
         {
@@ -527,6 +661,11 @@ public sealed partial class MainWindow
             var names = _userGrid.SelectedItems.OfType<StatItem>().Select(i => i.Row.Key).ToHashSet();
             return CopyFilesWhereAsync(f => names.Contains(f.OwnerId < 0 ? "(unknown)" : s.Owners.Name(f.OwnerId)));
         }));
+        bar.Children.Add(ToolButton("Add column to Details", () =>
+        {
+            foreach (var i in _userGrid.SelectedItems.OfType<StatItem>())
+                AddExtraColumn("owner", i.Row.Key, OperatingSystem.IsWindows() ? Security.Permissions.ShortName(i.Row.Key) : i.Row.Key);
+        }));
         bar.Children.Add(ToolButton("Export list…", () => ExportStatsAsync(_userGrid, "Users")));
         var note = new TextBlock { Text = "Owners are collected when Options › Scan › \"Statistics on file owners\" is on.", Classes = { "muted" }, VerticalAlignment = VerticalAlignment.Center };
         bar.Children.Add(note);
@@ -555,6 +694,12 @@ public sealed partial class MainWindow
                 });
         }));
         bar.Children.Add(ToolButton("Customize intervals…", () => OpenOptions("Age of files")));
+        bar.Children.Add(ToolButton("Add column to Details", () =>
+        {
+            foreach (var i in _ageGrid.SelectedItems.OfType<StatItem>())
+                if (i.Row.Key != Statistics.FutureLabel)
+                    AddExtraColumn("age", i.Row.Key, i.Row.Key);
+        }));
         bar.Children.Add(ToolButton("Export list…", () => ExportStatsAsync(_ageGrid, "Age of files")));
         _ageChart.Format = v => _settings.Size(v);
         return WithOverview(StatsLayout(_ageGrid, _ageChart, "ages"), bar);
@@ -590,6 +735,7 @@ public sealed partial class MainWindow
         };
         g.ContextMenu = ItemContextMenu(() => g.SelectedItems.OfType<ItemRow>().Select(r => r.Item).ToList());
         Resizing.RememberColumns(g, "top");
+        DragOut.Attach(g, () => [.. g.SelectedItems.OfType<ItemRow>().Select(r => r.Path)]);
         return g;
     }
 
@@ -636,6 +782,13 @@ public sealed partial class MainWindow
 
     private void UpdateHistory(ScanSession s)
     {
+        if (s.IsGroup)
+        {
+            _historyChart.Title = "Select a scan to see its history";
+            _historyChart.SetData([]);
+            _historyInfo.Text = "";
+            return;
+        }
         List<HistoryPoint> pts;
         try
         {
@@ -675,6 +828,8 @@ public sealed partial class MainWindow
         _filter = f;
         foreach (var s in _tree.Scans)
             f.Apply(s.Root);
+        if (_group != null)
+            f.Apply(_group.Root);
         _tree.Filtered = true;
         _tree.FileFilter = f.Predicate;
         _tree.Rebuild();

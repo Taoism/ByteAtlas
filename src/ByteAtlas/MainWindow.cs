@@ -77,11 +77,13 @@ public sealed partial class MainWindow : Window
                 _tree.Toggle(r);
         };
         _tree.ContextMenu = TreeContextMenu();
+        DragOut.Attach(_tree, () => [.. _tree.SelectedRows.Where(r => r.Kind != RowKind.FilesGroup && r.Item.Parent != null).Select(r => r.Item.FullPath)]);
 
         _drives = new DriveListPanel(settings);
         _drives.ScanRequested += (_, p) => StartScan(p);
 
         _details = CreateDetailsGrid();
+        AddExtraColumns();
         _topGrid = CreateTopGrid();
         BuildTabs();
 
@@ -138,9 +140,11 @@ public sealed partial class MainWindow : Window
         _timer.Start();
 
         DragDrop.SetAllowDrop(this, true);
-        DragDrop.AddDragOverHandler(this, (_, e) => e.DragEffects = e.DataTransfer.Contains(DataFormat.File) ? DragDropEffects.Link : DragDropEffects.None);
+        DragDrop.AddDragOverHandler(this, (_, e) => e.DragEffects = !DragOut.Active && e.DataTransfer.Contains(DataFormat.File) ? DragDropEffects.Link : DragDropEffects.None);
         DragDrop.AddDropHandler(this, (_, e) =>
         {
+            if (DragOut.Active)
+                return;
             foreach (var f in e.DataTransfer.TryGetFiles() ?? [])
                 if (f.TryGetLocalPath() is { } p)
                     StartScan(Directory.Exists(p) ? p : Path.GetDirectoryName(p) ?? p);
@@ -246,7 +250,7 @@ public sealed partial class MainWindow : Window
                 e.Handled = true;
             }
         };
-        var browse = ToolButton("…", async () =>
+        var browse = IconButton(Icons.FolderOpen, null, async () =>
         {
             var p = await PickFolderAsync("Choose a folder to scan");
             if (p != null)
@@ -257,6 +261,9 @@ public sealed partial class MainWindow : Window
         });
         ToolTip.SetTip(browse, "Choose a folder");
         var scan = ToolButton("Scan", () => StartScan(_pathBox.Text?.Trim() ?? ""));
+        scan.Content = Icons.Content(Icons.Play, "Scan");
+        if (scan.Content is StackPanel sp && sp.Children[0] is Avalonia.Controls.Shapes.Path play)
+            play.Fill = Brushes.White;
         scan.Classes.Add("accent");
         scan.Classes.Remove("tool");
 
@@ -280,20 +287,20 @@ public sealed partial class MainWindow : Window
         row.Children.Add(browse);
         row.Children.Add(scan);
         row.Children.Add(Sep());
-        row.Children.Add(ToolButton("Stop", StopSelected, "Stop the selected scan (Esc)"));
-        row.Children.Add(ToolButton("Pause", PauseSelected, "Pause / resume the selected scan"));
-        row.Children.Add(ToolButton("Refresh", () => RefreshSelected(true), "Scan the selected folder again (F5)"));
+        row.Children.Add(IconButton(Icons.Stop, "Stop", StopSelected, "Stop the selected scan (Esc)"));
+        row.Children.Add(IconButton(Icons.Pause, "Pause", PauseSelected, "Pause / resume the selected scan"));
+        row.Children.Add(IconButton(Icons.Refresh, "Refresh", () => RefreshSelected(true), "Scan the selected folder again (F5)"));
         row.Children.Add(Sep());
-        row.Children.Add(ToolButton("Back", GoBack, "Back (Alt+Left)"));
-        row.Children.Add(ToolButton("Forward", GoForward, "Forward (Alt+Right)"));
-        row.Children.Add(ToolButton("Up", GoUp, "Parent folder (Backspace)"));
+        row.Children.Add(IconButton(Icons.Back, null, GoBack, "Back (Alt+Left)"));
+        row.Children.Add(IconButton(Icons.Forward, null, GoForward, "Forward (Alt+Right)"));
+        row.Children.Add(IconButton(Icons.Up, null, GoUp, "Parent folder (Backspace)"));
         row.Children.Add(Sep());
         row.Children.Add(unit);
         row.Children.Add(mode);
         row.Children.Add(Sep());
-        row.Children.Add(ToolButton("Search", () => OpenSearch(null, null), "File search: large, old, temporary, duplicate files and more (Ctrl+F)"));
-        row.Children.Add(ToolButton("Export", () => ExportTreeAsync(null), "Export the selected branch"));
-        row.Children.Add(ToolButton("Options", OpenOptions, "Options (Ctrl+,)"));
+        row.Children.Add(IconButton(Icons.Search, "Search", () => OpenSearch(null, null), "File search: large, old, temporary, duplicate files and more (Ctrl+F)"));
+        row.Children.Add(IconButton(Icons.Export, "Export", () => ExportTreeAsync(null), "Export the selected branch"));
+        row.Children.Add(IconButton(Icons.Options, "Options", OpenOptions, "Options (Ctrl+,)"));
         return new Border { Classes = { "strip" }, Child = new ScrollViewer { HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto, VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled, Content = row } };
     }
 
@@ -308,6 +315,21 @@ public sealed partial class MainWindow : Window
         b.Click += (_, _) => action();
         if (tip != null)
             ToolTip.SetTip(b, tip);
+        return b;
+    }
+
+    /// <summary>A flat toolbar button with a dark grey glyph (and a label when <paramref name="text"/> is set).</summary>
+    internal static Button IconButton(string icon, string? text, Action action, string? tip = null)
+    {
+        var b = ToolButton(text ?? "", action, tip ?? text);
+        b.Content = Icons.Content(icon, text);
+        return b;
+    }
+
+    internal static Button IconButton(string icon, string? text, Func<Task> action, string? tip = null)
+    {
+        var b = ToolButton(text ?? "", action, tip ?? text);
+        b.Content = Icons.Content(icon, text);
         return b;
     }
 
@@ -501,6 +523,12 @@ public sealed partial class MainWindow : Window
                 _settings.ListFilesInTree = v;
                 _tree.Rebuild();
             }),
+            Check("_Group scans (\"All scans\" with totals)", _settings.GroupScans, v =>
+            {
+                _settings.GroupScans = v;
+                UpdateGroup();
+                _tree.Rebuild();
+            }),
             Check("Show size _changes (after comparing)", false, v =>
             {
                 _tree.ShowChanges = v;
@@ -534,8 +562,20 @@ public sealed partial class MainWindow : Window
             Item("Files with long _paths", () => OpenSearch(null, Search.SearchTemplate.LongPaths)),
             new Separator(),
             Item("_Bulk rename…", () => OpenRenamer(SelectedPaths())),
-            Item("NTFS _compress", () => CompressSelectedAsync(true)),
-            Item("NTFS d_ecompress", () => CompressSelectedAsync(false)),
+            Sub("_Compress selection",
+                Item("_NTFS (LZNT1)", () => CompressSelectedAsync(Native.CompressionFormat.Ntfs)),
+                Item("XPRESS _4K", () => CompressSelectedAsync(Native.CompressionFormat.Xpress4K)),
+                Item("XPRESS _8K", () => CompressSelectedAsync(Native.CompressionFormat.Xpress8K)),
+                Item("XPRESS _16K", () => CompressSelectedAsync(Native.CompressionFormat.Xpress16K)),
+                Item("_LZX", () => CompressSelectedAsync(Native.CompressionFormat.Lzx)),
+                new Separator(),
+                Item("_Uncompress", () => CompressSelectedAsync(Native.CompressionFormat.None))),
+            Item("_Permissions of selection…", () =>
+            {
+                if (SelectedPaths().FirstOrDefault() is { } p && OperatingSystem.IsWindows())
+                    _ = new Dialogs.PermissionsDialog(p).ShowDialog(this);
+            }),
+            Item("Search by _permissions…", () => OpenSearch(null, Search.SearchTemplate.Permissions)),
             new Separator(),
             Item("Empty _recycle bin", () =>
             {

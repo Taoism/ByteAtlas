@@ -248,6 +248,8 @@ public sealed class OptionsDialog : DialogWindow
             Check("Follow mount points and directory links", o.FollowMountPoints, v => o.FollowMountPoints = v),
             Check("Track NTFS hard links and alternate data streams (count shared files once)", o.TrackHardlinksAndStreams, v => o.TrackHardlinksAndStreams = v, "Slower on the folder walk; free with the master file table"),
             Check("Folder dates from the files inside only", o.FolderDateFromFilesOnly, v => o.FolderDateFromFilesOnly = v),
+            Check("Count Windows compact compression (XPRESS / LZX) on the folder walk (slower)", o.DetectCompactCompression, v => o.DetectCompactCompression = v,
+                "Windows hides compact compression from the normal file attributes, so the folder walk has to ask every file. The master file table always knows."),
             H("Statistics"),
             Check("Statistics on file owners (slower on the folder walk)", o.CollectOwners, v => o.CollectOwners = v),
             Label("File type and age statistics are always available; they are computed for the selected folder when you open their tab.", true));

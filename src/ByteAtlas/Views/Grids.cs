@@ -52,10 +52,25 @@ public sealed class ItemRow(Item item, ScanSession? scan, AppSettings s, string?
     public string Costs => s.CostPerGb > 0 ? (Item.Allocated / (double)(1L << 30) * s.CostPerGb).ToString("N2", System.Globalization.CultureInfo.CurrentCulture) + " " + s.Currency : "";
     public long PathLength => Path.Length;
 
+    // read lazily: only rows that are shown ask the file system
+    private Security.PermissionInfo? _perm;
+    private Security.PermissionInfo? Perm => OperatingSystem.IsWindows() ? _perm ??= Security.Permissions.Read(Path) : null;
+    public string Permissions => OperatingSystem.IsWindows() ? Perm?.Summary ?? "" : "";
+    public string PermissionInheritance => OperatingSystem.IsWindows() ? Perm?.InheritanceText ?? "" : "";
+
+    private string? _format;
+    public string Format => _format ??= OperatingSystem.IsWindows() && Item is FileItem
+        ? Native.Compression.Name(Native.Compression.Get(Path, Item.Attributes))
+        : "";
+
     // search extras
     public int Group { get; init; }
     public string Hash { get; init; } = "";
+    public string Detail { get; init; } = "";
     public bool Checked { get; set; }
+
+    /// <summary>Values of extra columns (per extension / owner / age interval), filled by MainWindow.</summary>
+    public Dictionary<string, long> Extra { get; } = [];
 }
 
 /// <summary>A grouped statistic row (extension, owner, age interval).</summary>
@@ -106,6 +121,10 @@ public static class GridFactory
         ["PathLength"] = new("Path length", nameof(ItemRow.PathLength), nameof(ItemRow.PathLength), 80, true),
         ["Group"] = new("Group", nameof(ItemRow.Group), nameof(ItemRow.Group), 60, true),
         ["Hash"] = new("Checksum", nameof(ItemRow.Hash), Width: 260),
+        ["Permissions"] = new("Permissions", nameof(ItemRow.Permissions), Width: 320),
+        ["Inherited"] = new("Inherited", nameof(ItemRow.PermissionInheritance), Width: 140),
+        ["Format"] = new("Compression format", nameof(ItemRow.Format), Width: 120),
+        ["Detail"] = new("Access", nameof(ItemRow.Detail), Width: 320),
     };
 
     public static readonly GridColumn[] StatColumns =

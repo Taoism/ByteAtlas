@@ -1,0 +1,11 @@
+ByteAtlas uses the following third-party components.
+
+Avalonia (UI framework) — MIT License — https://github.com/AvaloniaUI/Avalonia
+PDFsharp 6.2 (PDF reports) — MIT License — https://github.com/empira/PDFsharp
+Microsoft.Data.Sqlite, System.Management, System.DirectoryServices.AccountManagement — MIT License — https://github.com/dotnet
+SQLitePCLRaw / SQLite — Apache License 2.0 / public domain
+Svg.Skia (icon rendering tool only, not shipped) — MIT License
+
+Material Design Icons (toolbar glyph path data) — Apache License 2.0
+  Copyright Google LLC and the Pictogrammers contributors — https://pictogrammers.com
+  Licensed under the Apache License, Version 2.0 (http://www.apache.org/licenses/LICENSE-2.0).

@@ -15,7 +15,36 @@ public sealed partial class MainWindow
     private readonly List<Item> _forward = [];
     private bool _navigating;
 
-    public ScanSession? SelectedScan => _tree.Selected?.Scan ?? _tree.Scans.FirstOrDefault();
+    public ScanSession? SelectedScan => _tree.Selected?.Scan ?? _tree.Group ?? _tree.Scans.FirstOrDefault();
+
+    private ScanSession? _group;
+
+    /// <summary>The selected scan when it is a real one (not the "All scans" group): saving, comparing, scheduling.</summary>
+    private ScanSession? RealScan()
+    {
+        if (SelectedScan is { IsGroup: false } s)
+            return s;
+        SetStatus("Select a scan (not \"All scans\") for this.");
+        return null;
+    }
+
+    /// <summary>Shows or updates the "All scans" row (View › Group scans, two or more scans).</summary>
+    private void UpdateGroup()
+    {
+        if (_settings.GroupScans && _tree.Scans.Count >= 2)
+        {
+            if (_group == null)
+                _group = ScanGroup.Build(_tree.Scans);
+            else
+                ScanGroup.Refresh(_group, _tree.Scans);
+            _tree.Group = _group;
+        }
+        else
+        {
+            _group = null;
+            _tree.Group = null;
+        }
+    }
 
     /// <summary>The folder the right pane shows: the selected folder, or the folder of a selected file / [Files] row.</summary>
     public DirNode? SelectedFolder => _tree.Selected switch
@@ -49,6 +78,8 @@ public sealed partial class MainWindow
         }
         var session = new ScanSession(path, _settings.Scan.Clone());
         _tree.AddScan(session);
+        UpdateGroup();
+        _tree.Rebuild();
         _pathBox.Text = session.Path;
         _settings.AddRecent(session.Path);
         RefreshRecentMenu();
@@ -92,6 +123,7 @@ public sealed partial class MainWindow
     {
         if (!ReferenceEquals(oldRoot, s.Root))
             _tree.RootReplaced(s);
+        UpdateGroup();
         _tree.Rebuild();
         _progress.IsVisible = !_running.IsEmpty;
         if (s.State == ScanState.Done)
@@ -138,6 +170,7 @@ public sealed partial class MainWindow
             SetStatus($"{(s.State == ScanState.Paused ? "Paused" : "Scanning")} {s.Path}: {SizeFormat.Count(s.FoldersDone)} folders, {SizeFormat.Count(s.FilesDone)} files  ·  {s.CurrentPath}");
             if (_settings.UpdateDuringScan)
             {
+                UpdateGroup();
                 _tree.Rebuild();
                 UpdateViews(force: false, live: true);
             }
@@ -181,6 +214,11 @@ public sealed partial class MainWindow
                 StartScan(_pathBox.Text);
             return;
         }
+        if (s.IsGroup)
+        {
+            RefreshAllScans();
+            return;
+        }
         if (_running.ContainsKey(s) || s.IndexFile != null)
             return;
         if (d.Parent == null && recursive)
@@ -199,11 +237,13 @@ public sealed partial class MainWindow
 
     private void RemoveSelectedScan()
     {
-        if (SelectedScan is not { } s)
+        if (RealScan() is not { } s)
             return;
         if (_running.TryGetValue(s, out var cts))
             cts.Cancel();
         _tree.RemoveScan(s);
+        UpdateGroup();
+        _tree.Rebuild();
         if (_watchers.Remove(s, out var w))
             w.Dispose();
         UpdateViews(force: true);
@@ -211,7 +251,7 @@ public sealed partial class MainWindow
 
     private async Task SetTitleAsync()
     {
-        if (SelectedScan is not { } s)
+        if (RealScan() is not { } s)
             return;
         var t = await Dialogs.InputDialog.AskAsync(this, "Set title", "Title for this scan (used in the tree, reports and exports):", s.Title ?? "");
         if (t == null)

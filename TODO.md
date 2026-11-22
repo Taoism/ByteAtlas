@@ -37,17 +37,26 @@ clean-room, open source. Version 0.1.0 (2026-11-21).
   splitter), chart / list on Extensions / Users / Age, all grid column widths, File Search (size + panel), Bulk
   rename (size, panel, rules list), Options (size, page list), list / text dialogs, every dialog can grow.
 
+## Done (0.2.0, 2026-11-21)
+
+- Permissions: Permissions / Inherited columns (read per shown row), dialog with advanced rights, export columns,
+  permission search (account + group SIDs via AccountManagement, minimum access, explicit only, folders only).
+- Explorer menu (IContextMenu/2/3 + window subclass for submenus) on Shift+right click or "Explorer menu…";
+  drag-out from tree, Details, Top Files, thumbnails, search results (own window ignores the drop).
+- Group scans ("All scans" row, totals in place, owners merged by name, View › Group scans).
+- Compact compression: format column, compress XPRESS 4K/8K/16K / LZX / NTFS / none; MFT counts WofCompressedData;
+  folder walk asks each file (option; always on for the quick walk of small folders) — Windows hides it from attributes.
+- Preview pane, compare two files, thumbnail view (Explorer thumbnails on an STA thread).
+- Extra Details columns per extension / file group / owner / age interval (background totals, sortable).
+- Treemap path bar, click selects in the tree, outline of the selection, right-click menu.
+- Toolbar icons (Material Design Icons, Apache 2.0, dark grey glyphs).
+
 ## Open
 
 - [ ] Remote sources: SharePoint / OneDrive (Graph), Amazon S3, Azure Blob, WebDAV (beyond mapped drives),
       VHD(X) images (mount read-only, scan, dismount), Outlook mailboxes, Linux via SSH, phones via MTP.
-- [ ] NTFS permissions: column, export, permissions popup; search by Active Directory user / group permissions.
-- [ ] Shell context menu inside the app (IContextMenu), drag files out of the tree / lists into Explorer.
-- [ ] Preview pane (text / images), thumbnails view, compare two files side by side.
-- [ ] Group scans under a virtual root with summed totals.
-- [ ] Windows 10/11 compact compression (WOF LZX / XPress): show the format, compress with it.
-- [ ] "Add column for this extension / user / age interval to Details".
 - [ ] Print preview inside the app (currently: PDF opened in the viewer).
+- [ ] Explorer menu and drag-out need a manual check (UI automation cannot drive them).
 - [ ] Release: publish GUI + CLI side by side (GUI looks for byteatlas-cli next to itself), installer, portable zip,
       "create portable installation", GitHub repo + release (ask first).
 - [ ] Translations.

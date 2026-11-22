@@ -70,22 +70,34 @@ internal static class Resizing
         return s;
     }
 
-    /// <summary>Remembers the column widths of a data grid by header.</summary>
+    /// <summary>Remembers the widths of data grid columns the user changed (by header); untouched columns keep their defaults.</summary>
     public static void RememberColumns(DataGrid g, string key)
     {
+        var initial = new Dictionary<string, double>();
         void Apply()
         {
             foreach (var c in g.Columns)
-                if (c.Header is string h && Store.TryGetValue($"{key}.{h}", out var w) && w > 16)
+            {
+                if (c.Header is not string h || h.Length == 0)
+                    continue;
+                if (!initial.ContainsKey(h))
+                    initial[h] = c.Width.IsAbsolute ? c.Width.Value : -1;
+                if (Store.TryGetValue($"{key}.{h}", out var w) && w > 16)
                     c.Width = new DataGridLength(w);
+            }
         }
         Apply();
         g.Columns.CollectionChanged += (_, _) => Apply();
-        g.LayoutUpdated += (_, _) =>
+        g.AddHandler(Avalonia.Input.InputElement.PointerReleasedEvent, (_, _) =>
         {
             foreach (var c in g.Columns)
-                if (c.Header is string h && h.Length > 0 && c.ActualWidth > 16)
+            {
+                if (c.Header is not string h || h.Length == 0 || c.ActualWidth <= 16)
+                    continue;
+                var was = initial.GetValueOrDefault(h, -1);
+                if (Store.ContainsKey($"{key}.{h}") || Math.Abs(c.ActualWidth - was) > 1)
                     Store[$"{key}.{h}"] = c.ActualWidth;
-        };
+            }
+        }, Avalonia.Interactivity.RoutingStrategies.Tunnel | Avalonia.Interactivity.RoutingStrategies.Bubble, handledEventsToo: true);
     }
 }

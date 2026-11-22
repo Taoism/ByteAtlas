@@ -113,6 +113,19 @@ public sealed class AppSettings
     [JsonIgnore]
     public static AppSettings Current { get; private set; } = new();
     public string LastTab { get; set; } = "Chart";
+    public bool PreviewPane { get; set; }
+    public bool DetailsThumbnails { get; set; }
+
+    /// <summary>Extra Details columns: size of a file type / group / owner / age interval per folder.</summary>
+    public List<ExtraColumn> DetailExtraColumns { get; set; } = [];
+
+    public sealed class ExtraColumn
+    {
+        /// <summary>"ext", "group", "owner" or "age".</summary>
+        public string Kind { get; set; } = "ext";
+        public string Key { get; set; } = "";
+        public string Label { get; set; } = "";
+    }
 
     public sealed class AgeInterval
     {
