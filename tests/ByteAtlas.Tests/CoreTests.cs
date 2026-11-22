@@ -431,3 +431,82 @@ public class RenamerTests
         Assert.True(File.Exists(Path.Combine(t.Root, "a.txt")));
     }
 }
+
+public class WindowsFeatureTests
+{
+    [Fact]
+    public void PermissionsAreRead()
+    {
+        if (!OperatingSystem.IsWindows())
+            return;
+        using var t = new TempTree();
+        var p = ByteAtlas.Security.Permissions.Read(t.Root);
+        Assert.Null(p.Error);
+        Assert.NotEmpty(p.Entries);
+        Assert.NotEmpty(p.Owner);
+        Assert.Contains("Full control", p.Summary);
+        Assert.Equal("Inherited", p.InheritanceText);
+        Assert.Equal("Modify", ByteAtlas.Security.Permissions.Describe(System.Security.AccessControl.FileSystemRights.Modify));
+    }
+
+    [Fact]
+    public void PermissionSearchFindsFoldersOfTheUser()
+    {
+        if (!OperatingSystem.IsWindows())
+            return;
+        using var t = new TempTree();
+        var s = t.Scan();
+        var c = SearchCriteria.FromTemplate(SearchTemplate.Permissions);
+        c.PermissionExplicitOnly = false;
+        var r = SearchEngine.Search([s], c);
+        Assert.Contains(r, x => x.FullPath == t.Root);
+        Assert.Equal(5, r.Count); // root + 4 folders, all inherited from the temp folder
+        Assert.All(r, x => Assert.Contains("(inherited)", x.Detail));
+        c.PermissionExplicitOnly = true;
+        Assert.Empty(SearchEngine.Search([s], c));
+    }
+
+    [Fact]
+    public void CompactCompressionRoundTrip()
+    {
+        if (!OperatingSystem.IsWindows())
+            return;
+        using var t = new TempTree();
+        var f = Path.Combine(t.Root, "text.txt");
+        File.WriteAllText(f, string.Concat(Enumerable.Repeat("ByteAtlas compresses this line very well. ", 50_000)));
+        var r = FileOperations.Compress([f], ByteAtlas.Native.CompressionFormat.Xpress4K);
+        Assert.Equal(0, r.Failed);
+        Assert.Equal(ByteAtlas.Native.CompressionFormat.Xpress4K, ByteAtlas.Native.Compression.Get(f, File.GetAttributes(f)));
+        var walk = t.Scan(new ScanOptions { Method = ScanMethod.FileSystem, CollectOwners = false, DetectCompactCompression = true });
+        var item = walk.Root.Files.Single(x => x.Name == "text.txt");
+        Assert.True(item.Allocated < item.Size / 4, $"allocated {item.Allocated} of {item.Size}");
+        if (ByteAtlas.Scanning.MftScanner.CanScan(t.Root, out _))
+        {
+            var mft = t.Scan(new ScanOptions { Method = ScanMethod.Mft, CollectOwners = false });
+            var m = mft.Root.Files.Single(x => x.Name == "text.txt");
+            Assert.Equal(item.Size, m.Size);
+            Assert.InRange(m.Allocated, 1, item.Size / 4);
+        }
+        Assert.Equal(0, FileOperations.Compress([f], ByteAtlas.Native.CompressionFormat.Ntfs).Failed);
+        Assert.Equal(ByteAtlas.Native.CompressionFormat.Ntfs, ByteAtlas.Native.Compression.Get(f, File.GetAttributes(f)));
+        Assert.Equal(0, FileOperations.Compress([f], ByteAtlas.Native.CompressionFormat.None).Failed);
+        Assert.Equal(ByteAtlas.Native.CompressionFormat.None, ByteAtlas.Native.Compression.Get(f, File.GetAttributes(f)));
+    }
+
+    [Fact]
+    public void GroupSumsScans()
+    {
+        using var a = new TempTree();
+        using var b = new TempTree();
+        var sa = a.Scan();
+        var sb = b.Scan();
+        var g = ScanGroup.Build([sa, sb]);
+        Assert.True(g.IsGroup);
+        Assert.Equal(sa.Root.Size + sb.Root.Size, g.Root.Size);
+        Assert.Equal(sa.Root.FileCount * 2, g.Root.FileCount);
+        Assert.Equal(2, g.Root.Dirs.Length);
+        Assert.Null(sa.Root.Parent); // the scans keep their own paths
+        Assert.Equal(a.Root, sa.Root.FullPath);
+        Assert.Equal(16, Statistics.TopFiles(g.Root, 100).Count);
+    }
+}

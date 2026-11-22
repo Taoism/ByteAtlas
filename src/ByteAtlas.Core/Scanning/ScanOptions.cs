@@ -105,6 +105,12 @@ public sealed class ScanOptions
     /// <summary>Count hard-linked files once and add alternate data streams to the allocated space.</summary>
     public bool TrackHardlinksAndStreams { get; set; }
 
+    /// <summary>
+    /// Folder walk: ask every file for its space on disk, so Windows compact compression (compact.exe /exe, CompactOS)
+    /// is counted right — Windows hides it from the normal attributes. Slower; the master file table always knows.
+    /// </summary>
+    public bool DetectCompactCompression { get; set; }
+
     /// <summary>Collect the owner of every file (slower).</summary>
     public bool CollectOwners { get; set; } = true;
 

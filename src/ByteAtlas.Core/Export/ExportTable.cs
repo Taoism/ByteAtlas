@@ -53,6 +53,9 @@ public enum TreeColumn
     Extension,
     SizeChange,
     Wasted,
+    Permissions,
+    PermissionInheritance,
+    CompressionFormat,
 }
 
 public sealed class ExportSettings
@@ -102,6 +105,8 @@ public static class ExportBuilder
         TreeColumn.Created => "Created",
         TreeColumn.SizeChange => "Size change",
         TreeColumn.Wasted => "Wasted space",
+        TreeColumn.PermissionInheritance => "Inherited permissions",
+        TreeColumn.CompressionFormat => "Compression",
         _ => c.ToString(),
     };
 
@@ -197,6 +202,9 @@ public static class ExportBuilder
         TreeColumn.Extension => i.Extension,
         TreeColumn.SizeChange => i is DirNode d3 && d3.CompareSize != null ? d3.SizeChange : null,
         TreeColumn.Wasted => Math.Max(0, i.Allocated - i.Size),
+        TreeColumn.Permissions => OperatingSystem.IsWindows() ? Security.Permissions.Read(i.FullPath).Summary : "",
+        TreeColumn.PermissionInheritance => OperatingSystem.IsWindows() ? Security.Permissions.Read(i.FullPath).InheritanceText : "",
+        TreeColumn.CompressionFormat => OperatingSystem.IsWindows() && !i.IsFolder ? Native.Compression.Name(Native.Compression.Get(i.FullPath, i.Attributes)) : "",
         _ => null,
     };
 

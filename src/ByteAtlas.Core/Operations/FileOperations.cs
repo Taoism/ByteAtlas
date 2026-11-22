@@ -134,6 +134,43 @@ public static class FileOperations
         return new OperationResult(added.Count, errors.Count, errors);
     }
 
+    /// <summary>
+    /// Compresses files and folders (folders: everything below) with <paramref name="format"/>: NTFS (LZNT1), a compact
+    /// format (XPRESS 4K/8K/16K, LZX — files only, folders just hold them) or None to uncompress both kinds.
+    /// </summary>
+    public static OperationResult Compress(IReadOnlyList<string> paths, Native.CompressionFormat format, IProgress<string>? progress = null, CancellationToken ct = default)
+    {
+        if (!OperatingSystem.IsWindows())
+            return new OperationResult(0, paths.Count, ["Compression is only available on Windows."]);
+        var errors = new List<string>();
+        var done = 0;
+        foreach (var p in paths)
+        {
+            var targets = Directory.Exists(p)
+                ? Directory.EnumerateFileSystemEntries(p, "*", new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true, AttributesToSkip = 0 }).Prepend(p)
+                : [p];
+            foreach (var t in targets)
+            {
+                ct.ThrowIfCancellationRequested();
+                progress?.Report(t);
+                var isDir = Directory.Exists(t);
+                string? err = null;
+                var ok = format switch
+                {
+                    Native.CompressionFormat.None => (isDir || Native.Compression.RemoveCompact(t, out err)) && Win32.SetCompression(t, false, out err),
+                    Native.CompressionFormat.Ntfs => (isDir || Native.Compression.RemoveCompact(t, out err)) && Win32.SetCompression(t, true, out err),
+                    // compact compression is per file; LZNT1 has to go first
+                    _ => isDir || (Win32.SetCompression(t, false, out err) && Native.Compression.SetCompact(t, format, out err)),
+                };
+                if (ok)
+                    done++;
+                else
+                    errors.Add($"{t}: {err}");
+            }
+        }
+        return new OperationResult(done, errors.Count, errors);
+    }
+
     /// <summary>NTFS compression on/off for files and folders (folders: everything below too).</summary>
     public static OperationResult SetCompression(IReadOnlyList<string> paths, bool compress, CancellationToken ct = default)
     {

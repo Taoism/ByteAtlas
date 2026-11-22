@@ -156,7 +156,7 @@ public sealed class FileSystemScanner
                     LinkCount = 1,
                 };
                 var alloc = RoundUp(e.Length);
-                if (windows && (e.Attributes & (FileAttributes.Compressed | FileAttributes.SparseFile)) != 0)
+                if (windows && (_o.DetectCompactCompression || (e.Attributes & (FileAttributes.Compressed | FileAttributes.SparseFile | FileAttributes.ReparsePoint)) != 0))
                 {
                     var c = Win32.CompressedSize(full);
                     if (c >= 0)

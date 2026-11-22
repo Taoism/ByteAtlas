@@ -12,6 +12,17 @@ public enum SearchTemplate
     Duplicates,
     LongPaths,
     AllFiles,
+    Permissions,
+}
+
+/// <summary>Minimum access a permission search looks for.</summary>
+public enum AccessLevel
+{
+    Any,
+    Read,
+    Write,
+    Modify,
+    FullControl,
 }
 
 public enum HashKind
@@ -61,6 +72,18 @@ public sealed class SearchCriteria
     public bool DuplicatesSameDate { get; set; }
     public HashKind DuplicatesHash { get; set; } = HashKind.Md5;
 
+    // ----- permissions (Windows) -----
+
+    /// <summary>User or group ("DOMAIN\name" or "name"): items where it (or a group it belongs to) has access.</summary>
+    public string? PermissionAccount { get; set; }
+    public AccessLevel PermissionLevel { get; set; } = AccessLevel.Any;
+
+    /// <summary>Only items where the access is granted explicitly (not inherited from above).</summary>
+    public bool PermissionExplicitOnly { get; set; } = true;
+
+    /// <summary>Check folders only (files usually inherit; checking every file is slow).</summary>
+    public bool PermissionFoldersOnly { get; set; } = true;
+
     public static SearchCriteria FromTemplate(SearchTemplate t) => t switch
     {
         SearchTemplate.LargeFiles => new SearchCriteria
@@ -103,6 +126,7 @@ public sealed class SearchCriteria
             IncludeFolders = true,
         },
         SearchTemplate.AllFiles => new SearchCriteria { Name = "All files", Template = t },
+        SearchTemplate.Permissions => new SearchCriteria { Name = "Permissions", Template = t, PermissionAccount = Environment.UserDomainName + "\\" + Environment.UserName, IncludeFolders = true },
         _ => new SearchCriteria(),
     };
 }

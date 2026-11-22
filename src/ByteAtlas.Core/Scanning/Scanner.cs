@@ -177,7 +177,7 @@ public static class Scanner
                     LinkCount = 1,
                 };
                 var alloc = fi.Length <= 0 ? 0 : (fi.Length + cluster - 1) / cluster * cluster;
-                if (OperatingSystem.IsWindows() && (fi.Attributes & (FileAttributes.Compressed | FileAttributes.SparseFile)) != 0)
+                if (OperatingSystem.IsWindows() && (fi.Attributes & (FileAttributes.Compressed | FileAttributes.SparseFile | FileAttributes.ReparsePoint)) != 0)
                 {
                     var c = Native.Win32.CompressedSize(fi.FullName);
                     if (c >= 0)

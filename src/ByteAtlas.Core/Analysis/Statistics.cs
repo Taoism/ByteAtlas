@@ -92,6 +92,24 @@ public static class Statistics
         return Finish(map.Values);
     }
 
+    /// <summary>Owners across several scans (each scan numbers its owners itself): merged by name.</summary>
+    public static List<StatRow> ByOwner(IEnumerable<ScanSession> scans)
+    {
+        var map = new Dictionary<string, StatRow>(StringComparer.OrdinalIgnoreCase);
+        foreach (var s in scans)
+        {
+            foreach (var r in ByOwner(s.Root, s.Owners))
+            {
+                if (!map.TryGetValue(r.Key, out var row))
+                    map[r.Key] = row = new StatRow { Key = r.Key };
+                row.Size += r.Size;
+                row.Allocated += r.Allocated;
+                row.Files += r.Files;
+            }
+        }
+        return Finish(map.Values);
+    }
+
     /// <summary>Distribution of files over age intervals (kept in interval order).</summary>
     public static List<StatRow> ByAge(DirNode branch, AgeIntervals intervals, AgeBasis basis = AgeBasis.Modified, DateTime? now = null)
     {

@@ -1,3 +1,4 @@
+using System.Security.AccessControl;
 using System.Security.Cryptography;
 using ByteAtlas.Analysis;
 using ByteAtlas.Model;
@@ -19,6 +20,9 @@ public sealed class SearchResult
     /// <summary>Duplicate group number (1-based), 0 for normal searches.</summary>
     public int Group { get; set; }
     public string? Hash { get; set; }
+
+    /// <summary>Extra text (permission search: the access found).</summary>
+    public string Detail { get; set; } = "";
     public bool Checked { get; set; }
 }
 
@@ -77,6 +81,12 @@ public static class SearchEngine
 
     private static void SearchTree(ScanSession s, DirNode root, SearchCriteria c, List<SearchResult> results, CancellationToken ct)
     {
+        if (!string.IsNullOrWhiteSpace(c.PermissionAccount))
+        {
+            if (OperatingSystem.IsWindows())
+                PermissionSearch(root, c, results, ct);
+            return;
+        }
         var owner = string.IsNullOrEmpty(c.Owner) ? null : c.Owner;
         var stack = new Stack<(DirNode Node, string Path)>();
         stack.Push((root, root.FullPath));
@@ -104,6 +114,55 @@ public static class SearchEngine
                     return;
             }
         }
+    }
+
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    private static void PermissionSearch(DirNode root, SearchCriteria c, List<SearchResult> results, CancellationToken ct)
+    {
+        var sids = Security.Permissions.SidsOf(c.PermissionAccount!.Trim(), out _);
+        if (sids.Count == 0)
+            throw new ArgumentException($"The account \"{c.PermissionAccount}\" is not known.");
+        var need = c.PermissionLevel switch
+        {
+            AccessLevel.Read => FileSystemRights.Read,
+            AccessLevel.Write => FileSystemRights.Write,
+            AccessLevel.Modify => FileSystemRights.Modify,
+            AccessLevel.FullControl => FileSystemRights.FullControl,
+            _ => (FileSystemRights)0,
+        };
+        need &= ~FileSystemRights.Synchronize;
+        var items = new List<Item>();
+        foreach (var d in root.AllFolders())
+        {
+            if (c.Exclude.Any(r => r.Enabled && r.Folders && r.Matches(d.Name)))
+                continue;
+            items.Add(d);
+            if (!c.PermissionFoldersOnly)
+                items.AddRange(d.Files);
+        }
+        var found = new System.Collections.Concurrent.ConcurrentBag<SearchResult>();
+        Parallel.ForEach(items, new ParallelOptions { CancellationToken = ct, MaxDegreeOfParallelism = 8 }, item =>
+        {
+            var path = item.FullPath;
+            var p = Security.Permissions.Read(path);
+            if (p.Error != null)
+                return;
+            var entries = p.Entries.Where(e => e.Sid != null && sids.Contains(e.Sid) && (!c.PermissionExplicitOnly || !e.Inherited)).ToList();
+            if (entries.Count == 0 || entries.TrueForAll(e => !e.Allow))
+                return;
+            var rights = Security.Permissions.EffectiveFor(p, sids);
+            if (need != 0 && (rights & need) != need)
+                return;
+            var who = string.Join(", ", entries.Where(e => e.Allow).Select(e => Security.Permissions.ShortName(e.Identity)).Distinct());
+            found.Add(new SearchResult
+            {
+                Item = item,
+                FullPath = path,
+                Owner = p.Owner,
+                Detail = $"{Security.Permissions.Describe(rights)}: {who}{(entries.Exists(e => !e.Inherited) ? " (explicit)" : " (inherited)")}",
+            });
+        });
+        results.AddRange(found.OrderBy(r => r.FullPath, StringComparer.OrdinalIgnoreCase));
     }
 
     private static bool MatchesFolder(DirNode d, string full, SearchCriteria c)

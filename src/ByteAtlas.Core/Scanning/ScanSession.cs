@@ -103,6 +103,12 @@ public sealed class ScanSession
     /// <summary>Set when the scan was loaded from an index file.</summary>
     public string? IndexFile { get; internal set; }
 
+    /// <summary>True for the virtual "All scans" root (see ScanGroup).</summary>
+    public bool IsGroup { get; internal set; }
+
+    /// <summary>The scans inside a group.</summary>
+    public IReadOnlyList<ScanSession> Members { get; internal set; } = [];
+
     /// <summary>Description of the compared scan when a comparison is active.</summary>
     public string? ComparedWith { get; set; }
 

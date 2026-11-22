@@ -72,6 +72,7 @@ public sealed class MftScanner
         public byte NameRank; // namespace of the kept name; 9 = only a DOS 8.3 alias so far
         public bool IsDir;
         public bool InUse;
+        public bool Wof;
     }
 
     private const int RootRecord = 5;
@@ -369,7 +370,7 @@ public sealed class MftScanner
                     ParseFileName(r, a, len, ref rec);
                     break;
                 case 0x80: // $DATA
-                    ParseData(r, a, len, nonRes, nameLen, ref rec);
+                    ParseData(r, a, len, nonRes, nameLen, BinaryPrimitives.ReadUInt16LittleEndian(r[(a + 0x0A)..]), ref rec);
                     break;
             }
             a += len;
@@ -414,7 +415,7 @@ public sealed class MftScanner
         }
     }
 
-    private static void ParseData(Span<byte> r, int a, int len, bool nonRes, int nameLen, ref Rec rec)
+    private static void ParseData(Span<byte> r, int a, int len, bool nonRes, int nameLen, int nameOfs, ref Rec rec)
     {
         long size, alloc;
         if (nonRes)
@@ -439,6 +440,13 @@ public sealed class MftScanner
             rec.Size = size;
             rec.Alloc = alloc;
         }
+        else if (nameLen == WofStream.Length && nameOfs + nameLen * 2 <= len
+                 && MemoryMarshal.Cast<byte, char>(r.Slice(a + nameOfs, nameLen * 2)).SequenceEqual(WofStream))
+        {
+            // Windows compact compression: the real data sits in this stream, the main stream is empty
+            rec.Alloc += alloc;
+            rec.Wof = true;
+        }
         else
         {
             rec.Streams++;
@@ -446,6 +454,8 @@ public sealed class MftScanner
             rec.StreamAlloc += alloc;
         }
     }
+
+    private const string WofStream = "WofCompressedData";
 
     private static long FileTime(long ft)
     {
