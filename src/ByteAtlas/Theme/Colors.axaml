@@ -1,0 +1,221 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!--
+    App colours per theme. Use them with DynamicResource so switching Light / Dark / Follow system
+    repaints everything. Dark: nothing light around controls (dark grey outlines only).
+  -->
+  <ResourceDictionary.ThemeDictionaries>
+
+    <ResourceDictionary x:Key="Dark">
+      <SolidColorBrush x:Key="QualityGoodBrush" Color="#FF2F6B3A" />
+      <SolidColorBrush x:Key="QualityFairBrush" Color="#FF7A6A24" />
+      <SolidColorBrush x:Key="QualityPoorBrush" Color="#FF7E3434" />
+      <SolidColorBrush x:Key="QualityLosslessBrush" Color="#FF2B5F86" />
+      <SolidColorBrush x:Key="QualityUnknownBrush" Color="#FF3A3C42" />
+      <SolidColorBrush x:Key="ChartBarBrush" Color="#FF3D7FD6" />
+      <SolidColorBrush x:Key="ChartLineBrush" Color="#FF6FB1FF" />
+      <SolidColorBrush x:Key="ChartAltBrush" Color="#FFE0A34A" />
+      <SolidColorBrush x:Key="ChartGridBrush" Color="#FF2E3036" />
+      <SolidColorBrush x:Key="ProblemBrush" Color="#FFE07A6E" />
+      <SolidColorBrush x:Key="AppBackgroundBrush" Color="#FF1B1C1F" />
+      <SolidColorBrush x:Key="PanelBrush" Color="#FF222428" />
+      <SolidColorBrush x:Key="PanelAltBrush" Color="#FF282A2F" />
+      <SolidColorBrush x:Key="EdgeBrush" Color="#FF3A3C42" />
+      <SolidColorBrush x:Key="TextBrush" Color="#FFE8E8EA" />
+      <SolidColorBrush x:Key="MutedTextBrush" Color="#FF9A9CA1" />
+      <SolidColorBrush x:Key="AccentBrush" Color="#FF3D7FD6" />
+      <SolidColorBrush x:Key="AccentHoverBrush" Color="#FF4A8CE3" />
+      <SolidColorBrush x:Key="ModifiedBrush" Color="#FF7CC47C" />
+      <SolidColorBrush x:Key="PreviewBackgroundBrush" Color="#FF141518" />
+      <SolidColorBrush x:Key="ThumbBackgroundBrush" Color="#FF17181B" />
+      <SolidColorBrush x:Key="FindingWarnBrush" Color="#FFE0A040" />
+      <SolidColorBrush x:Key="FindingBadBrush" Color="#FFE87070" />
+      <SolidColorBrush x:Key="MessageErrorBrush" Color="#FFE06060" />
+      <SolidColorBrush x:Key="DiffHighlightBrush" Color="#28E0A040" />
+      <SolidColorBrush x:Key="OverlayBrush" Color="#C8141518" />
+      <SolidColorBrush x:Key="OverlayTextBrush" Color="#FFFFFFFF" />
+      <SolidColorBrush x:Key="ChartTooltipBrush" Color="#E618191C" />
+      <SolidColorBrush x:Key="ChartNeutralBrush" Color="#FF6A6D74" />
+      <SolidColorBrush x:Key="AboutCreditsBrush" Color="#FF101113" />
+      <SolidColorBrush x:Key="AboutCreditsEdgeBrush" Color="#FF2C2E33" />
+      <SolidColorBrush x:Key="AboutTextBrush" Color="#FFDCDCDC" />
+
+      <!-- Fluent overrides: borders that Fluent draws light-ish become dark grey -->
+      <SolidColorBrush x:Key="TextControlBorderBrush" Color="#FF3E4046" />
+      <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="#FF50535A" />
+      <SolidColorBrush x:Key="TextControlBackground" Color="#FF202226" />
+      <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="#FF24262B" />
+      <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="#FF1E2024" />
+      <SolidColorBrush x:Key="TextControlForegroundFocused" Color="#FFE8E8EA" />
+      <SolidColorBrush x:Key="ButtonBackground" Color="#FF2E3036" />
+      <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#FF383B42" />
+      <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#FF26282D" />
+      <SolidColorBrush x:Key="ButtonBorderBrush" Color="#FF3E4046" />
+      <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="#FF4A4D54" />
+      <SolidColorBrush x:Key="ButtonBorderBrushPressed" Color="#FF3E4046" />
+      <SolidColorBrush x:Key="ToggleButtonBackground" Color="#FF34363B" />
+      <SolidColorBrush x:Key="ToggleButtonBackgroundPointerOver" Color="#FF3C3F45" />
+      <SolidColorBrush x:Key="ToggleButtonBackgroundPressed" Color="#FF2C2E33" />
+      <SolidColorBrush x:Key="ToggleButtonBorderBrush" Color="Transparent" />
+      <SolidColorBrush x:Key="ToggleButtonBorderBrushPointerOver" Color="Transparent" />
+      <SolidColorBrush x:Key="ButtonBackgroundDisabled" Color="#FF34363B" />
+      <SolidColorBrush x:Key="ButtonBorderBrushDisabled" Color="#FF34363B" />
+      <SolidColorBrush x:Key="ComboBoxBackground" Color="#FF202226" />
+      <SolidColorBrush x:Key="ComboBoxBackgroundPointerOver" Color="#FF26282D" />
+      <SolidColorBrush x:Key="ComboBoxBorderBrush" Color="#FF3E4046" />
+      <SolidColorBrush x:Key="ComboBoxBorderBrushPointerOver" Color="#FF50535A" />
+      <SolidColorBrush x:Key="ComboBoxDropDownBackground" Color="#FF25272C" />
+      <SolidColorBrush x:Key="ComboBoxDropDownBorderBrush" Color="#FF3E4046" />
+      <SolidColorBrush x:Key="CheckBoxCheckBackgroundStrokeUnchecked" Color="#FF55585F" />
+      <SolidColorBrush x:Key="CheckBoxCheckBackgroundStrokeUncheckedPointerOver" Color="#FF63666E" />
+      <SolidColorBrush x:Key="CheckBoxCheckBackgroundFillUnchecked" Color="#FF25272C" />
+      <SolidColorBrush x:Key="CheckBoxCheckBackgroundFillUncheckedPointerOver" Color="#FF2C2E34" />
+      <SolidColorBrush x:Key="RadioButtonOuterEllipseStroke" Color="#FF55585F" />
+      <SolidColorBrush x:Key="RadioButtonOuterEllipseStrokePointerOver" Color="#FF63666E" />
+      <SolidColorBrush x:Key="MenuFlyoutPresenterBackground" Color="#FF25272C" />
+      <SolidColorBrush x:Key="MenuFlyoutPresenterBorderBrush" Color="#FF3A3C42" />
+      <SolidColorBrush x:Key="FlyoutPresenterBackground" Color="#FF25272C" />
+      <SolidColorBrush x:Key="FlyoutBorderThemeBrush" Color="#FF3A3C42" />
+      <SolidColorBrush x:Key="ToolTipBackground" Color="#FF2A2C31" />
+      <SolidColorBrush x:Key="ToolTipBorderBrush" Color="#FF3A3C42" />
+      <SolidColorBrush x:Key="ToolTipForeground" Color="#FFE8E8EA" />
+      <SolidColorBrush x:Key="GridSplitterBackground" Color="#FF2A2C31" />
+      <SolidColorBrush x:Key="DataGridGridLinesBrush" Color="#FF2C2E33" />
+      <SolidColorBrush x:Key="DataGridColumnHeaderBackgroundBrush" Color="#FF25272C" />
+      <SolidColorBrush x:Key="DataGridColumnHeaderForegroundBrush" Color="#FFC8C9CC" />
+      <SolidColorBrush x:Key="ScrollBarBackground" Color="Transparent" />
+      <SolidColorBrush x:Key="ScrollBarThumbFill" Color="#FF4A4D54" />
+      <SolidColorBrush x:Key="ScrollBarThumbFillPointerOver" Color="#FF5A5D65" />
+      <SolidColorBrush x:Key="ScrollBarThumbFillPressed" Color="#FF63666E" />
+      <Color x:Key="ScrollBarThumbBackgroundColor">#FF4A4D54</Color>
+      <Color x:Key="ScrollBarPanningThumbBackgroundColor">#FF4A4D54</Color>
+      <SolidColorBrush x:Key="ScrollBarPanningThumbBackground" Color="#FF4A4D54" />
+      <SolidColorBrush x:Key="ScrollBarButtonBackground" Color="Transparent" />
+      <SolidColorBrush x:Key="ScrollBarButtonBorderBrush" Color="Transparent" />
+      <SolidColorBrush x:Key="ExpanderHeaderBackground" Color="#FF222428" />
+      <SolidColorBrush x:Key="ExpanderHeaderBackgroundPointerOver" Color="#FF282A2F" />
+      <SolidColorBrush x:Key="ExpanderHeaderBackgroundPressed" Color="#FF222428" />
+      <SolidColorBrush x:Key="ExpanderHeaderBorderBrush" Color="#FF3A3C42" />
+      <SolidColorBrush x:Key="ExpanderHeaderBorderBrushPointerOver" Color="#FF3A3C42" />
+      <SolidColorBrush x:Key="ExpanderHeaderBorderBrushPressed" Color="#FF3A3C42" />
+      <SolidColorBrush x:Key="ExpanderContentBackground" Color="#FF1E2024" />
+      <SolidColorBrush x:Key="ExpanderContentBorderBrush" Color="#FF3A3C42" />
+      <SolidColorBrush x:Key="ExpanderChevronBackground" Color="Transparent" />
+      <SolidColorBrush x:Key="ExpanderChevronBorderBrush" Color="Transparent" />
+      <SolidColorBrush x:Key="ProgressBarBackground" Color="#FF2C2E33" />
+      <SolidColorBrush x:Key="ProgressBarBorderBrush" Color="#FF2C2E33" />
+      <SolidColorBrush x:Key="TreeViewItemForegroundDisabled" Color="#FF7A7D84" />
+      <SolidColorBrush x:Key="TreeViewItemForegroundSelectedDisabled" Color="#FF8A8D94" />
+      <SolidColorBrush x:Key="TreeViewItemBackgroundSelectedDisabled" Color="#FF2C2E33" />
+      <SolidColorBrush x:Key="TabItemHeaderForegroundUnselected" Color="#FF9A9CA1" />
+      <SolidColorBrush x:Key="TabItemHeaderForegroundSelected" Color="#FFE8E8EA" />
+    </ResourceDictionary>
+
+    <ResourceDictionary x:Key="Light">
+      <SolidColorBrush x:Key="QualityGoodBrush" Color="#FF9FE0A8" />
+      <SolidColorBrush x:Key="QualityFairBrush" Color="#FFF2E28A" />
+      <SolidColorBrush x:Key="QualityPoorBrush" Color="#FFF2A0A0" />
+      <SolidColorBrush x:Key="QualityLosslessBrush" Color="#FFA8D2F2" />
+      <SolidColorBrush x:Key="QualityUnknownBrush" Color="#FFE3E5E8" />
+      <SolidColorBrush x:Key="ChartBarBrush" Color="#FF2F6FC4" />
+      <SolidColorBrush x:Key="ChartLineBrush" Color="#FF2F6FC4" />
+      <SolidColorBrush x:Key="ChartAltBrush" Color="#FFC07A10" />
+      <SolidColorBrush x:Key="ChartGridBrush" Color="#FFE3E5E8" />
+      <SolidColorBrush x:Key="ProblemBrush" Color="#FFB8352A" />
+      <SolidColorBrush x:Key="AppBackgroundBrush" Color="#FFF1F2F4" />
+      <SolidColorBrush x:Key="PanelBrush" Color="#FFFFFFFF" />
+      <SolidColorBrush x:Key="PanelAltBrush" Color="#FFF6F7F9" />
+      <SolidColorBrush x:Key="EdgeBrush" Color="#FFD4D6DB" />
+      <SolidColorBrush x:Key="TextBrush" Color="#FF1D1E21" />
+      <SolidColorBrush x:Key="MutedTextBrush" Color="#FF62646B" />
+      <SolidColorBrush x:Key="AccentBrush" Color="#FF2F6FC4" />
+      <SolidColorBrush x:Key="AccentHoverBrush" Color="#FF3B7DD3" />
+      <SolidColorBrush x:Key="ModifiedBrush" Color="#FF2E8B3E" />
+      <SolidColorBrush x:Key="PreviewBackgroundBrush" Color="#FFE6E7EA" />
+      <SolidColorBrush x:Key="ThumbBackgroundBrush" Color="#FFE9EAED" />
+      <SolidColorBrush x:Key="FindingWarnBrush" Color="#FFB06A00" />
+      <SolidColorBrush x:Key="FindingBadBrush" Color="#FFC0392B" />
+      <SolidColorBrush x:Key="MessageErrorBrush" Color="#FFD03B3B" />
+      <SolidColorBrush x:Key="DiffHighlightBrush" Color="#40F0B040" />
+      <SolidColorBrush x:Key="OverlayBrush" Color="#C8141518" />
+      <SolidColorBrush x:Key="OverlayTextBrush" Color="#FFFFFFFF" />
+      <SolidColorBrush x:Key="ChartTooltipBrush" Color="#F2FFFFFF" />
+      <SolidColorBrush x:Key="ChartNeutralBrush" Color="#FF9A9CA1" />
+      <SolidColorBrush x:Key="AboutCreditsBrush" Color="#FFFFFFFF" />
+      <SolidColorBrush x:Key="AboutCreditsEdgeBrush" Color="#FFD4D6DB" />
+      <SolidColorBrush x:Key="AboutTextBrush" Color="#FF2A2B2F" />
+
+      <!-- Fluent overrides: the same keys as Dark, so both themes are fully defined -->
+      <SolidColorBrush x:Key="TextControlBorderBrush" Color="#FFC9CCD2" />
+      <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="#FFA9ADB4" />
+      <SolidColorBrush x:Key="TextControlBackground" Color="#FFFFFFFF" />
+      <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="#FFFAFAFB" />
+      <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="#FFFFFFFF" />
+      <SolidColorBrush x:Key="TextControlForegroundFocused" Color="#FF1D1E21" />
+      <SolidColorBrush x:Key="ButtonBackground" Color="#FFFFFFFF" />
+      <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#FFF3F4F6" />
+      <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#FFE6E8EB" />
+      <SolidColorBrush x:Key="ButtonBorderBrush" Color="#FFC9CCD2" />
+      <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="#FFB3B7BE" />
+      <SolidColorBrush x:Key="ButtonBorderBrushPressed" Color="#FFC9CCD2" />
+      <SolidColorBrush x:Key="ToggleButtonBackground" Color="#FFFFFFFF" />
+      <SolidColorBrush x:Key="ToggleButtonBackgroundPointerOver" Color="#FFF3F4F6" />
+      <SolidColorBrush x:Key="ToggleButtonBackgroundPressed" Color="#FFE6E8EB" />
+      <SolidColorBrush x:Key="ToggleButtonBorderBrush" Color="#FFC9CCD2" />
+      <SolidColorBrush x:Key="ToggleButtonBorderBrushPointerOver" Color="#FFB3B7BE" />
+      <SolidColorBrush x:Key="ButtonBackgroundDisabled" Color="#FFF3F4F6" />
+      <SolidColorBrush x:Key="ButtonBorderBrushDisabled" Color="#FFDDE0E4" />
+      <SolidColorBrush x:Key="ComboBoxBackground" Color="#FFFFFFFF" />
+      <SolidColorBrush x:Key="ComboBoxBackgroundPointerOver" Color="#FFF6F7F9" />
+      <SolidColorBrush x:Key="ComboBoxBorderBrush" Color="#FFC9CCD2" />
+      <SolidColorBrush x:Key="ComboBoxBorderBrushPointerOver" Color="#FFA9ADB4" />
+      <SolidColorBrush x:Key="ComboBoxDropDownBackground" Color="#FFFFFFFF" />
+      <SolidColorBrush x:Key="ComboBoxDropDownBorderBrush" Color="#FFD4D6DB" />
+      <SolidColorBrush x:Key="CheckBoxCheckBackgroundStrokeUnchecked" Color="#FF8A8D94" />
+      <SolidColorBrush x:Key="CheckBoxCheckBackgroundStrokeUncheckedPointerOver" Color="#FF6E7178" />
+      <SolidColorBrush x:Key="CheckBoxCheckBackgroundFillUnchecked" Color="#FFFFFFFF" />
+      <SolidColorBrush x:Key="CheckBoxCheckBackgroundFillUncheckedPointerOver" Color="#FFF3F4F6" />
+      <SolidColorBrush x:Key="RadioButtonOuterEllipseStroke" Color="#FF8A8D94" />
+      <SolidColorBrush x:Key="RadioButtonOuterEllipseStrokePointerOver" Color="#FF6E7178" />
+      <SolidColorBrush x:Key="MenuFlyoutPresenterBackground" Color="#FFFFFFFF" />
+      <SolidColorBrush x:Key="MenuFlyoutPresenterBorderBrush" Color="#FFD4D6DB" />
+      <SolidColorBrush x:Key="FlyoutPresenterBackground" Color="#FFFFFFFF" />
+      <SolidColorBrush x:Key="FlyoutBorderThemeBrush" Color="#FFD4D6DB" />
+      <SolidColorBrush x:Key="ToolTipBackground" Color="#FFFFFFFF" />
+      <SolidColorBrush x:Key="ToolTipBorderBrush" Color="#FFD4D6DB" />
+      <SolidColorBrush x:Key="ToolTipForeground" Color="#FF1D1E21" />
+      <SolidColorBrush x:Key="ScrollBarBackground" Color="Transparent" />
+      <SolidColorBrush x:Key="ScrollBarThumbFill" Color="#FFB9BCC2" />
+      <SolidColorBrush x:Key="ScrollBarThumbFillPointerOver" Color="#FFA3A7AE" />
+      <SolidColorBrush x:Key="ScrollBarThumbFillPressed" Color="#FF8E9299" />
+      <Color x:Key="ScrollBarThumbBackgroundColor">#FFB9BCC2</Color>
+      <Color x:Key="ScrollBarPanningThumbBackgroundColor">#FFB9BCC2</Color>
+      <SolidColorBrush x:Key="ScrollBarPanningThumbBackground" Color="#FFB9BCC2" />
+      <SolidColorBrush x:Key="ScrollBarButtonBackground" Color="Transparent" />
+      <SolidColorBrush x:Key="ScrollBarButtonBorderBrush" Color="Transparent" />
+      <SolidColorBrush x:Key="ExpanderHeaderBackgroundPointerOver" Color="#FFF6F7F9" />
+      <SolidColorBrush x:Key="ExpanderHeaderBackgroundPressed" Color="#FFFFFFFF" />
+      <SolidColorBrush x:Key="ExpanderHeaderBorderBrush" Color="#FFD4D6DB" />
+      <SolidColorBrush x:Key="ExpanderHeaderBorderBrushPointerOver" Color="#FFD4D6DB" />
+      <SolidColorBrush x:Key="ExpanderHeaderBorderBrushPressed" Color="#FFD4D6DB" />
+      <SolidColorBrush x:Key="ExpanderContentBorderBrush" Color="#FFD4D6DB" />
+      <SolidColorBrush x:Key="ExpanderChevronBackground" Color="Transparent" />
+      <SolidColorBrush x:Key="ExpanderChevronBorderBrush" Color="Transparent" />
+      <SolidColorBrush x:Key="ProgressBarBackground" Color="#FFE3E5E8" />
+      <SolidColorBrush x:Key="ProgressBarBorderBrush" Color="#FFE3E5E8" />
+      <SolidColorBrush x:Key="TreeViewItemForegroundDisabled" Color="#FF9A9CA1" />
+      <SolidColorBrush x:Key="TreeViewItemForegroundSelectedDisabled" Color="#FF8A8D94" />
+      <SolidColorBrush x:Key="TreeViewItemBackgroundSelectedDisabled" Color="#FFE6E8EB" />
+
+      <SolidColorBrush x:Key="DataGridGridLinesBrush" Color="#FFE3E5E8" />
+      <SolidColorBrush x:Key="DataGridColumnHeaderBackgroundBrush" Color="#FFF3F4F6" />
+      <SolidColorBrush x:Key="DataGridColumnHeaderForegroundBrush" Color="#FF3A3C41" />
+      <SolidColorBrush x:Key="GridSplitterBackground" Color="#FFE1E3E7" />
+      <SolidColorBrush x:Key="ExpanderHeaderBackground" Color="#FFFFFFFF" />
+      <SolidColorBrush x:Key="ExpanderContentBackground" Color="#FFFAFAFB" />
+      <SolidColorBrush x:Key="TabItemHeaderForegroundUnselected" Color="#FF62646B" />
+      <SolidColorBrush x:Key="TabItemHeaderForegroundSelected" Color="#FF1D1E21" />
+    </ResourceDictionary>
+
+  </ResourceDictionary.ThemeDictionaries>
+</ResourceDictionary>

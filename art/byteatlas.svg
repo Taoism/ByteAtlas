@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#16243f"/>
+      <stop offset="1" stop-color="#0a1020"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#37c8ff" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#37c8ff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="globe" cx="0.38" cy="0.32" r="0.75">
+      <stop offset="0" stop-color="#1f6fb8"/>
+      <stop offset="1" stop-color="#0b2a55"/>
+    </radialGradient>
+    <linearGradient id="body" gradientUnits="userSpaceOnUse" x1="0" y1="124" x2="0" y2="240">
+      <stop offset="0" stop-color="#9ef0ff"/>
+      <stop offset="1" stop-color="#3d7fd6"/>
+    </linearGradient>
+    <clipPath id="ball"><circle cx="128" cy="84" r="60"/></clipPath>
+  </defs>
+
+  <rect x="8" y="8" width="240" height="240" rx="48" fill="url(#bg)"/>
+  <circle cx="128" cy="84" r="86" fill="url(#glow)"/>
+
+  <!-- the digital globe -->
+  <circle cx="128" cy="84" r="60" fill="url(#globe)"/>
+  <g clip-path="url(#ball)" fill="none" stroke="#5fd8ff" stroke-width="2.4" opacity="0.9">
+    <ellipse cx="128" cy="84" rx="60" ry="20"/>
+    <ellipse cx="128" cy="84" rx="60" ry="42"/>
+    <line x1="68" y1="84" x2="188" y2="84"/>
+    <ellipse cx="128" cy="84" rx="20" ry="60"/>
+    <ellipse cx="128" cy="84" rx="42" ry="60"/>
+    <line x1="128" y1="24" x2="128" y2="144"/>
+  </g>
+  <!-- data nodes at grid crossings -->
+  <g fill="#c9f6ff">
+    <circle cx="128" cy="24" r="3.2"/>
+    <circle cx="128" cy="64" r="3.6"/>
+    <circle cx="128" cy="104" r="3.6"/>
+    <circle cx="86" cy="84" r="3.6"/>
+    <circle cx="170" cy="84" r="3.6"/>
+    <circle cx="108" cy="84" r="3.2"/>
+    <circle cx="148" cy="84" r="3.2"/>
+    <circle cx="157" cy="56" r="3"/>
+    <circle cx="99" cy="112" r="3"/>
+  </g>
+  <!-- bright data packets on the rim -->
+  <g fill="#ffffff">
+    <rect x="160" y="40" width="7" height="7" rx="1.5"/>
+    <rect x="82" y="50" width="6" height="6" rx="1.5"/>
+    <rect x="150" y="118" width="6" height="6" rx="1.5"/>
+  </g>
+  <circle cx="128" cy="84" r="60" fill="none" stroke="#8fe6ff" stroke-width="3"/>
+
+  <!-- Atlas, kneeling on one knee, holding the world on raised arms -->
+  <g fill="none" stroke="url(#body)" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M108 174 L88 152 L90 130" stroke-width="12"/>
+    <path d="M148 174 L168 152 L166 130" stroke-width="12"/>
+    <path d="M120 204 L100 226 L126 234" stroke-width="13"/>
+    <path d="M137 204 L162 212 L164 234" stroke-width="13"/>
+  </g>
+  <path d="M102 168 Q128 158 154 168 L144 206 L112 206 Z" fill="url(#body)"/>
+  <!-- circuit traces on the body: he is made of data too -->
+  <g fill="none" stroke="#123a6b" stroke-width="2" stroke-linecap="round" opacity="0.8">
+    <path d="M118 176 L118 186 L126 192 L126 200"/>
+    <path d="M138 176 L138 184 L132 190"/>
+  </g>
+  <g fill="#123a6b"><circle cx="126" cy="200" r="2.2"/><circle cx="132" cy="190" r="2.2"/><circle cx="118" cy="176" r="2.2"/><circle cx="138" cy="176" r="2.2"/></g>
+  <circle cx="128" cy="152" r="11" fill="#bff4ff"/>
+  <circle cx="90" cy="129" r="7" fill="#bff4ff"/>
+  <circle cx="166" cy="129" r="7" fill="#bff4ff"/>
+
+  <!-- circuit ground line -->
+  <g stroke="#37c8ff" stroke-width="2.4" stroke-linecap="round" opacity="0.75">
+    <line x1="52" y1="238" x2="204" y2="238"/>
+  </g>
+  <g fill="#37c8ff">
+    <circle cx="52" cy="238" r="3.4"/>
+    <circle cx="204" cy="238" r="3.4"/>
+  </g>
+</svg>
