@@ -77,7 +77,7 @@ clean-room, open source. Version 0.1.0 (2026-11-21).
   `byteatlas-cli schedule add|list|remove` for servers. Tested: systemd timer in WSL, real cron run in Debian.
 - Test suite runs on Linux too (tests/linux/run-tests.sh, .NET SDK container): 59/59.
 
-## Done (next version, 2026-11-22)
+## Done (0.5.0, 2026-11-22)
 
 - **Duplicate Files** and **Duplicate Folders** tabs (Alt+7 / Alt+8, History moved to Alt+9), working below the
   folder selected in the tree; found on first show, again when the scan changes (refresh, change journal after a

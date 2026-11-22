@@ -1,0 +1,24 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.9.0.schema.json
+PackageIdentifier: Taoism.ByteAtlas
+PackageVersion: 0.5.0
+InstallerType: inno
+UpgradeBehavior: install
+ProductCode: '{2EBCAE69-DB6E-4FDF-BCAE-FB3D2FA80E68}_is1'
+Commands:
+- byteatlas-cli
+ReleaseDate: 2026-11-22
+Installers:
+- Architecture: x64
+  Scope: user
+  InstallerUrl: https://github.com/Taoism/ByteAtlas/releases/download/v0.5.0/ByteAtlas-0.5.0-setup-win-x64.exe
+  InstallerSha256: 4602008B327D9B6AC81C2BBFE3D5A286FE807D33561E38C5C3B2AAD9EE61C376
+  InstallerSwitches:
+    Custom: /CURRENTUSER
+- Architecture: x64
+  Scope: machine
+  InstallerUrl: https://github.com/Taoism/ByteAtlas/releases/download/v0.5.0/ByteAtlas-0.5.0-setup-win-x64.exe
+  InstallerSha256: 4602008B327D9B6AC81C2BBFE3D5A286FE807D33561E38C5C3B2AAD9EE61C376
+  InstallerSwitches:
+    Custom: /ALLUSERS
+ManifestType: installer
+ManifestVersion: 1.9.0

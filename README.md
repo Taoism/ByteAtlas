@@ -18,6 +18,10 @@ no .NET needed; each has the app and the `byteatlas-cli` command):
 | Debian / Ubuntu / Mint | `sudo apt install ./byteatlas_<v>_amd64.deb` |
 | Fedora / RHEL | `sudo dnf install ./byteatlas-<v>-1.x86_64.rpm` |
 | Other Linux | `ByteAtlas-<v>-linux-x64.tar.gz`: unpack, run `./ByteAtlas` |
+| Scoop | `scoop bucket add byteatlas https://github.com/Taoism/ByteAtlas` then `scoop install byteatlas` |
+
+ByteAtlas looks for a newer release once a day (one request to GitHub, nothing else sent, nothing downloaded;
+off in Options › Updates).
 
 On Linux the folder walk reads owners, real allocated sizes and hard links (counted once) and stays on one file
 system unless *Follow mount points* is on. Deleting moves files to the desktop **trash** (freedesktop.org, so
@@ -50,7 +54,8 @@ compression and permissions, snapshots, Explorer menu) are hidden there.
 - **Details** with selectable columns (size, allocated, %, files, folders, dates, owner, attributes, type,
   wasted space, compression, hard links, streams, costs, size change, path length).
 - **Extensions** (or file groups), **Users** (owners), **Age of Files** (configurable intervals),
-  **Top Files**, **History** (used space over time per drive / folder).
+  **Top Files**, **History** (used space over time per drive / folder, and **what changed since** an earlier
+  scan: the folders that grew or shrank most).
 - Filter the tree by extension, file group or owner; **group scans** under one "All scans" row with totals.
 - **Preview pane** (pictures, text files, Explorer thumbnails for videos / PDFs / documents), **compare two files**
   side by side, **thumbnail view** of a folder.
@@ -58,6 +63,13 @@ compression and permissions, snapshots, Explorer menu) are hidden there.
   right-click for its menu; the tree selection is outlined on the map.
 - Extra Details columns: the size of one **file type, file group, owner or age interval** in each folder.
 - Drive list with used / free space, extra paths, all shares of a server.
+
+**Duplicate Files / Duplicate Folders** tabs — copies below the tree selection or across all open scans, by
+contents (quick checksum, then MD5 / SHA-256; checksums remembered, so a search after a refresh only reads what
+changed), name + contents or name + size. Folders with the same contents, and folders contained in bigger ones.
+Groups show the space that could be freed; keep rules pick the copy to keep; delete, move, replace with **hard
+links** or **copy-on-write clones** (ReFS / Dev Drive, btrfs, XFS: stored once, each file stays its own).
+Protected folders (Windows, Program Files, .git, …) are never touched; ignored folders are left out.
 
 **File search** — templates for large, old, temporary, duplicate (MD5 / SHA-256) and long-path files, or your own
 criteria (names, size, dates, attributes, owner, path length). On the results: delete (recycle bin), move / copy
@@ -81,7 +93,8 @@ and real size on disk, compress or uncompress files and folders.
 **Windows integration** — the real **Explorer right-click menu** (Shift + right click, or "Explorer menu…"), **drag
 files out** into Explorer, Explorer context menu ("Analyze / Search with ByteAtlas"), properties dialog, open
 command prompt here, NTFS compress / decompress, empty recycle bin, map network drive, start as administrator,
-**scheduled scans** (Task Scheduler running `byteatlas-cli`; on Linux systemd timers or cron).
+**scheduled scans** (Task Scheduler running `byteatlas-cli`; on Linux systemd timers or cron) with a **low-space
+warning** in the corner of the screen. A daily log of scans and errors (Help › Open log folder).
 
 ## Command line
 
@@ -89,6 +102,10 @@ command prompt here, NTFS compress / decompress, empty recycle bin, map network 
 byteatlas-cli scan D:\ --export "D:\Reports\d_{date}.xlsx" --save-index "D:\Reports\d_{date}.badb" --history
 byteatlas-cli compare D:\ "D:\Reports\d_2026-11-01.badb" --export changes.html
 byteatlas-cli search E:\ --template duplicates --hash sha256 --export dups.csv
+byteatlas-cli duplicates D:\ E:\ --min-size 10MB --export dups.xlsx
+byteatlas-cli duplicates D:\Photos --folders
+byteatlas-cli scan C:\ --alert-free 10% --history
+byteatlas-cli version --check
 byteatlas-cli history C:\
 byteatlas-cli schedule add home weekly 03:00 --day sun -- scan /home --export ~/reports/home_{date}.xlsx --history   (Linux)
 byteatlas-cli scan ssh://me@server/srv --export srv.html
