@@ -123,6 +123,15 @@
     <Setter Property="FontSize" Value="12.5" />
     <Setter Property="MinHeight" Value="28" />
   </Style>
+  <Style Selector="DataGridRowGroupHeader">
+    <Setter Property="Background" Value="{DynamicResource PanelAltBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+    <Setter Property="IsPropertyNameVisible" Value="False" />
+    <Setter Property="IsItemCountVisible" Value="False" />
+    <Setter Property="FontSize" Value="12.5" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="MinHeight" Value="26" />
+  </Style>
   <Style Selector="DataGridCell.right">
     <Setter Property="HorizontalContentAlignment" Value="Right" />
   </Style>

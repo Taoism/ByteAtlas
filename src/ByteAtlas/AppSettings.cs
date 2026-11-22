@@ -73,6 +73,13 @@ public sealed class AppSettings
     public bool GroupExtensions { get; set; }
     public int TopCount { get; set; } = 100;
 
+    // ----- duplicate tabs -----
+    public DuplicateMatch DuplicateMatch { get; set; } = DuplicateMatch.Contents;
+    public Search.HashKind DuplicateHash { get; set; } = Search.HashKind.Md5;
+    public long DuplicateMinSize { get; set; } = 1L << 20;
+    public bool DuplicateSubsets { get; set; } = true;
+    public string DuplicateKeep { get; set; } = "Oldest";
+
     // ----- details columns -----
     public List<string> DetailColumns { get; set; } = ["Name", "Size", "Allocated", "Percent", "Files", "Folders", "Modified", "Owner", "Type"];
 

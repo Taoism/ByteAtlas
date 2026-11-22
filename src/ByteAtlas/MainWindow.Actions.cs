@@ -177,6 +177,19 @@ public sealed partial class MainWindow
         await ReportAsync(r, "Emptied the trash");
     }
 
+    /// <summary>Takes deleted / moved items out of the tree and updates the totals.</summary>
+    private void RemoveGoneFromTree(List<Item> items)
+    {
+        foreach (var i in items)
+            if (i.Parent != null && !File.Exists(i.FullPath) && !Directory.Exists(i.FullPath))
+                i.Parent.RemoveChild(i);
+        foreach (var s in _tree.Scans)
+            s.Root.Recalculate(s.Options.FolderDateFromFilesOnly);
+        _tree.Rebuild();
+        UpdateViews(true);
+        _drives.Refresh();
+    }
+
     private async Task DeleteItemsAsync(List<Item> items, bool recycle)
     {
         items = [.. items.Where(i => i.Parent != null)];
@@ -190,15 +203,7 @@ public sealed partial class MainWindow
         if (!await MessageBox.ConfirmAsync(this, text, recycle ? "Move to " + Shell.TrashName : "Delete", "ByteAtlas"))
             return;
         var r = await Task.Run(() => FileOperations.Delete([.. items.Select(i => i.FullPath)], recycle), CancellationToken.None);
-        // take the deleted items out of the tree
-        foreach (var i in items)
-            if (!File.Exists(i.FullPath) && !Directory.Exists(i.FullPath))
-                i.Parent!.RemoveChild(i);
-        foreach (var s in _tree.Scans)
-            s.Root.Recalculate(s.Options.FolderDateFromFilesOnly);
-        _tree.Rebuild();
-        UpdateViews(true);
-        _drives.Refresh();
+        RemoveGoneFromTree(items);
         await ReportAsync(r, recycle ? "Moved to the " + Shell.TrashName : "Deleted");
     }
 

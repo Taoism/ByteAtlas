@@ -69,6 +69,9 @@ public sealed class ItemRow(Item item, ScanSession? scan, AppSettings s, string?
     public string Detail { get; init; } = "";
     public bool Checked { get; set; }
 
+    /// <summary>Duplicate tabs: the heading of the row's group.</summary>
+    public string GroupTitle { get; init; } = "";
+
     /// <summary>Values of extra columns (per extension / owner / age interval), filled by MainWindow.</summary>
     public Dictionary<string, long> Extra { get; } = [];
 }

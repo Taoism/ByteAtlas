@@ -659,7 +659,7 @@ public sealed partial class MainWindow : Window
         Ctrl+S   Save scan to index file
         Ctrl+P   Print report (PDF)
         Alt+←/→  Back / forward      Backspace  Parent folder
-        Alt+1…7  Chart, Details, Extensions, Users, Age, Top Files, History
+        Alt+1…9  Chart, Details, Extensions, Users, Age, Top Files, Duplicate Files, Duplicate Folders, History
         F6       Move between the tree and the right side
         Treemap  Arrows: tiles · Enter: zoom in · Backspace: up · Shift+F10: menu
         Shift + right click  Windows Explorer menu
@@ -677,7 +677,7 @@ public sealed partial class MainWindow : Window
         Bind(Key.Delete, KeyModifiers.None, () => _ = DeleteSelectedAsync(true));
         Bind(Key.Delete, KeyModifiers.Shift, () => _ = DeleteSelectedAsync(false));
         Bind(Key.C, KeyModifiers.Control, () => _ = CopyPathsAsync());
-        for (var i = 0; i < 7; i++)
+        for (var i = 0; i < 9; i++)
         {
             var tab = i;
             Bind(Key.D1 + i, KeyModifiers.Alt, () =>

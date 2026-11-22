@@ -55,6 +55,8 @@ public sealed partial class MainWindow
             3 => _userGrid,
             4 => _ageGrid,
             5 => _topGrid,
+            DupFilesTab => _dupFiles?.Grid,
+            DupFoldersTab => _dupFolders?.Grid,
             _ => _historyChart,
         };
         target?.Focus();
@@ -68,6 +70,8 @@ public sealed partial class MainWindow
         _tabs.Items.Add(new TabItem { Header = "Users", Content = UsersTab() });
         _tabs.Items.Add(new TabItem { Header = "Age of Files", Content = AgeTab() });
         _tabs.Items.Add(new TabItem { Header = "Top Files", Content = TopTab() });
+        _tabs.Items.Add(new TabItem { Header = "Duplicate Files", Content = DuplicateTab(folders: false) });
+        _tabs.Items.Add(new TabItem { Header = "Duplicate Folders", Content = DuplicateTab(folders: true) });
         _tabs.Items.Add(new TabItem { Header = "History", Content = HistoryTab() });
         var idx = _tabs.Items.OfType<TabItem>().ToList().FindIndex(t => (t.Header as string) == _settings.LastTab);
         _tabs.SelectedIndex = Math.Max(0, idx);
@@ -189,7 +193,10 @@ public sealed partial class MainWindow
                 RunInBackground(() => Statistics.TopFiles(d, _settings.TopCount, _settings.TreeMode == TreeValueMode.Allocated), files =>
                     _topGrid.ItemsSource = files.Select(f => new ItemRow(f, s, _settings)).ToList());
                 break;
-            case 6:
+            case DupFilesTab or DupFoldersTab:
+                UpdateDuplicates(tab, s, d);
+                break;
+            case 8:
                 UpdateHistory(s);
                 break;
         }

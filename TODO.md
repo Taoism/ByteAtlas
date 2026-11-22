@@ -77,13 +77,22 @@ clean-room, open source. Version 0.1.0 (2026-11-21).
   `byteatlas-cli schedule add|list|remove` for servers. Tested: systemd timer in WSL, real cron run in Debian.
 - Test suite runs on Linux too (tests/linux/run-tests.sh, .NET SDK container): 59/59.
 
-## Open
+## Done (next version, 2026-11-22)
 
-- [ ] Duplicate search inside the main window, not a separate tool window: new tabs next to Chart / Details /
-      Extensions / …, **Duplicate Files** and **Duplicate Folders** (same contents: names, sizes, hashes; folders that
-      are subsets of each other), working on the current scan / tree selection like the other tabs. Grouped results
-      with the space that could be freed, keep-one selection rules, delete / hard-link / move the extra copies; a
-      selected group shows in the tree and the chart. (Today duplicates are only a template in the File search window.)
+- **Duplicate Files** and **Duplicate Folders** tabs (Alt+7 / Alt+8, History moved to Alt+9), working below the
+  folder selected in the tree; found on first show, again when the scan changes (refresh, change journal after a
+  cached start). Compare: same contents / same name + contents / same name + size (fast; the only choice for remote
+  scans and index files); MD5 or SHA-256; minimum size (default 1 MB). Files: size → quick checksum (start + end) →
+  full checksum, 4 in parallel; hard links of one file count as one copy (groups that are only links are left out).
+  Folders: order-independent signature of names + sizes, then of checksums; only the highest folders of a match are
+  listed; "contained in others" finds folders whose files all sit at the same places in a bigger folder (the identical
+  sub folders of such a pair are not listed again). Results grouped with collapsible headers and the space that could
+  be freed; keep rules (oldest, newest, shortest / longest path, inside the tree selection, first) select the other
+  copies; delete (recycle bin / for good, warns when every copy of a group is selected), hard-link (Windows; the
+  folder is scanned again afterwards), move, export. A selected group is marked in the tree (expanded, orange
+  bar) and outlined in the treemap; "Show in chart" opens the treemap on the folder holding all copies.
+
+## Open
 - [ ] Chart colours per file type: every extension / file group gets its own colour in the treemap, pie and bar
       charts, with a legend, editable colours (Options), the same colour for a type everywhere in the app.
 - [ ] Details view: file and folder icons, with folder icons drawn for both dark and light mode (no light outlines

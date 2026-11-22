@@ -413,6 +413,18 @@ public sealed class TreemapChart : ChartBase
     }
 
     private Item? _highlight;
+    private IReadOnlyCollection<Item> _marked = [];
+
+    /// <summary>Items of a duplicate group: outlined in the warning colour.</summary>
+    public IReadOnlyCollection<Item> Marked
+    {
+        get => _marked;
+        set
+        {
+            _marked = value;
+            InvalidateVisual();
+        }
+    }
 
     /// <summary>The item selected in the tree: drawn with an accent outline when it is on the map.</summary>
     public Item? Highlight
@@ -487,6 +499,21 @@ public sealed class TreemapChart : ChartBase
         }
         var edge = new Pen(this.ThemeBrush("AppBackgroundBrush", Brushes.Black), 1);
         Layout(ctx, _root, bounds, 0, edge);
+        if (_marked.Count > 0)
+        {
+            var warn = new Pen(this.ThemeBrush("FindingWarnBrush", Brushes.Orange), 2.5);
+            var under = new Pen(Brushes.Black, 4);
+            foreach (var m in _marked)
+            {
+                var t = _tiles.FindLast(x => ReferenceEquals(x.Item, m));
+                for (var p = m.Parent; p != null && t.Item == null; p = p.Parent)
+                    t = _tiles.FindLast(x => ReferenceEquals(x.Item, p));
+                if (t.Item == null || ReferenceEquals(t.Item, _root))
+                    continue;
+                ctx.DrawRectangle(null, under, t.Rect.Deflate(1));
+                ctx.DrawRectangle(null, warn, t.Rect.Deflate(1));
+            }
+        }
         if (_highlight != null && !ReferenceEquals(_highlight, _root))
         {
             var t = _tiles.FindLast(x => ReferenceEquals(x.Item, _highlight));

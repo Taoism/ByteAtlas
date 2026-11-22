@@ -145,6 +145,44 @@ public sealed class SizeTree : UserControl
     public event EventHandler? SelectionChanged;
     public event EventHandler<TreeRow>? RowActivated;
 
+    private HashSet<Item> _marked = [];
+    private HashSet<Item> _markedPath = [];
+
+    /// <summary>Items drawn with a marker (a duplicate group); their folders get a thin one.</summary>
+    public IReadOnlyCollection<Item> Marked => _marked;
+
+    public bool IsMarked(Item i) => _marked.Contains(i);
+    public bool IsOnMarkedPath(Item i) => _markedPath.Contains(i);
+
+    /// <summary>Marks the items, expands the tree down to each of them and selects the first.</summary>
+    public void Mark(IReadOnlyList<Item> items, bool reveal)
+    {
+        _marked = [.. items];
+        _markedPath = [];
+        foreach (var i in items)
+            for (var p = i.Parent; p != null; p = p.Parent)
+                if (!_markedPath.Add(p))
+                    break;
+        if (reveal && items.Count > 0)
+        {
+            foreach (var i in items)
+            {
+                for (var p = i.Parent; p != null; p = p.Parent)
+                    _expanded.Add(p);
+                if (i is FileItem { Parent: { } folder } && Settings.ListFilesInTree)
+                    _expanded.Add(FilesKey(folder));
+            }
+            if (Group != null)
+                _expanded.Add(Group.Root);
+            Rebuild();
+            Select(items[0]);
+        }
+        else
+            _list.InvalidateVisual();
+        foreach (var r in _rows)
+            r.Invalidate();
+    }
+
     public new ContextMenu? ContextMenu
     {
         get => _list.ContextMenu;
@@ -549,6 +587,17 @@ public sealed class TreeRowView : Control
         var muted = this.ThemeBrush("MutedTextBrush", Brushes.Gray);
         var glyph = this.ThemeBrush("GlyphBrush", Brushes.Gray);
         var x = 4 + r.Level * Indent;
+
+        // duplicate group marker: a bar at the left edge (thin on the folders leading to it)
+        if (r.Kind != RowKind.FilesGroup && _tree.Marked.Count > 0)
+        {
+            if (_tree.IsMarked(r.Item))
+                ctx.FillRectangle(this.ThemeBrush("FindingWarnBrush", Brushes.Orange), new Rect(0, 1, 3, h - 2));
+            else if (_tree.IsOnMarkedPath(r.Item))
+                ctx.FillRectangle(this.ThemeBrush("FindingWarnBrush", Brushes.Orange), new Rect(1, 4, 1, h - 8));
+        }
+        else if (r.Kind == RowKind.FilesGroup && _tree.Marked.Count > 0 && r.FilesOf is { } fo && _tree.IsOnMarkedPath(fo) && fo.Files.Any(_tree.IsMarked))
+            ctx.FillRectangle(this.ThemeBrush("FindingWarnBrush", Brushes.Orange), new Rect(1, 4, 1, h - 8));
 
         // expander triangle
         if (r.Expandable)

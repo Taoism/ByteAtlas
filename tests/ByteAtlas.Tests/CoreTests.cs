@@ -570,3 +570,78 @@ public class RefreshTests
         }
     }
 }
+
+public class DuplicateTabTests
+{
+    [Fact]
+    public void FilesGroupedByContent()
+    {
+        using var t = new TempTree();
+        t.Write(@"sub\copy.bin", 9000, seed: 7); // same content as dup1/dup2, other name
+        var s = t.Scan();
+        var g = Duplicates.FindFiles(s.Root, new DuplicateOptions());
+        var only = Assert.Single(g);
+        Assert.Equal(3, only.Files.Count);
+        Assert.Equal(18000, only.Wasted);
+
+        var named = Duplicates.FindFiles(s.Root, new DuplicateOptions { Match = DuplicateMatch.NameAndContents });
+        Assert.Empty(named);
+
+        // names + sizes only: notdup.dat has the size but another name
+        var fast = Duplicates.FindFiles(s.Root, new DuplicateOptions { Match = DuplicateMatch.NameAndSize });
+        Assert.Empty(fast);
+    }
+
+    [Fact]
+    public void HardLinksAreNotCopies()
+    {
+        if (!OperatingSystem.IsWindows() && !OperatingSystem.IsLinux())
+            return;
+        using var t = new TempTree();
+        var a = Path.Combine(t.Root, "other", "dup1.dat");
+        var b = Path.Combine(t.Root, "other", "dup2.dat");
+        Assert.Equal(1, FileOperations.ReplaceWithHardlinks(a, [b]).Done);
+        var s = t.Scan();
+        Assert.Empty(Duplicates.FindFiles(s.Root, new DuplicateOptions()));
+    }
+
+    [Fact]
+    public void IdenticalFoldersReportedAtTheTop()
+    {
+        using var t = new TempTree();
+        foreach (var top in new[] { "x", "y" })
+        {
+            t.Write($@"{top}\one.dat", 4000, seed: 3);
+            t.Write($@"{top}\in\two.dat", 6000, seed: 4);
+        }
+        t.Write(@"z\one.dat", 4000, seed: 9); // same names and sizes, other contents
+        t.Write(@"z\in\two.dat", 6000, seed: 4);
+        var s = t.Scan();
+        var g = Duplicates.FindFolders(s.Root, new DuplicateOptions { Subsets = false });
+        var top1 = Assert.Single(g, x => x.Folders.Count == 2 && x.Folders.TrueForAll(d => d.Name is "x" or "y"));
+        Assert.Equal(10000, top1.Wasted);
+        // x\in, y\in and z\in match too, but x / y already cover two of them: z\in stays with them as its own group
+        Assert.DoesNotContain(g, x => x.Folders.Exists(d => d.Name == "z"));
+
+        var fast = Duplicates.FindFolders(s.Root, new DuplicateOptions { Match = DuplicateMatch.NameAndSize, Subsets = false });
+        Assert.Contains(fast, x => x.Folders.Count == 3);
+    }
+
+    [Fact]
+    public void SubsetFolderFound()
+    {
+        using var t = new TempTree();
+        t.Write(@"full\one.dat", 4000, seed: 3);
+        t.Write(@"full\in\two.dat", 6000, seed: 4);
+        t.Write(@"full\more.dat", 2000, seed: 5);
+        t.Write(@"part\one.dat", 4000, seed: 3);
+        t.Write(@"part\in\two.dat", 6000, seed: 4);
+        var s = t.Scan();
+        var g = Duplicates.FindFolders(s.Root, new DuplicateOptions());
+        var sub = Assert.Single(g); // full/in = part/in is part of the same finding
+        Assert.True(sub.IsSubset);
+        Assert.Equal("full", sub.Folders[0].Name);
+        Assert.Equal("part", Assert.Single(sub.Folders.Skip(1)).Name);
+        Assert.Equal(10000, sub.Wasted);
+    }
+}
